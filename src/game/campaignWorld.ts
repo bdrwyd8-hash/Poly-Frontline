@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CampaignSceneArchetype, CampaignWeather } from './campaignData';
-import type { ObstacleBox } from './rules';
+import type { ObstacleBox } from './types';
 import {
   getAsphaltPbrSet,
   getBrickPbrSet,
@@ -82,11 +82,13 @@ function addBoxObstacle(
   parent.add(mesh);
   if (collide) {
     obstacles.push({
+      id: `camp_obs_${obstacles.length}`,
       minX: x - w * 0.5,
       maxX: x + w * 0.5,
       minZ: z - d * 0.5,
       maxZ: z + d * 0.5,
       height: h,
+      blocksSight: h >= 1.35,
     });
   }
   return mesh;
@@ -287,7 +289,7 @@ export function buildCampaignSet(
 
   const hasDoc = typeof document !== 'undefined';
   const concreteSet = hasDoc ? getConcretePbrSet() : null;
-  const rockSet = hasDoc ? getRockPbrSet() : null;
+  const rockSet = hasDoc ? getRockPbrSet('desert') : null;
   const brickSet = hasDoc ? getBrickPbrSet() : null;
   const asphaltSet = hasDoc ? getAsphaltPbrSet() : null;
   const woodSet = hasDoc ? getWoodStockPbrSet() : null;
@@ -319,11 +321,13 @@ export function buildCampaignSet(
     w.add(body);
     group.add(w);
     obstacles.push({
+      id: `camp_sb_${obstacles.length}`,
       minX: x - (Math.abs(Math.cos(rotY)) * len + Math.abs(Math.sin(rotY)) * 0.9) * 0.5,
       maxX: x + (Math.abs(Math.cos(rotY)) * len + Math.abs(Math.sin(rotY)) * 0.9) * 0.5,
       minZ: z - (Math.abs(Math.sin(rotY)) * len + Math.abs(Math.cos(rotY)) * 0.9) * 0.5,
       maxZ: z + (Math.abs(Math.sin(rotY)) * len + Math.abs(Math.cos(rotY)) * 0.9) * 0.5,
       height: 1.05,
+      blocksSight: false,
     });
   };
 
@@ -335,9 +339,15 @@ export function buildCampaignSet(
       roof.position.set(bx, gAt(bx, bz) + 4.35, bz);
       group.add(roof);
     }
-    // Check-in reception desk & induction awning
-    addBoxObstacle(group, obstacles, 0, gAt(0, 16), 16, 10, 3.2, 4.2, tentMat);
-    addBoxObstacle(group, obstacles, 0, gAt(0, 11.5), 11.5, 5.2, 1.1, 1.0, woodMat);
+    // Open-sided check-in awning & low reception desk (clear forward courtyard sightline)
+    for (const [px, pz] of [[-4.6, 13.6], [4.6, 13.6], [-4.6, 17.6], [4.6, 17.6]]) {
+      addBoxObstacle(group, obstacles, px, gAt(px, pz), pz, 0.22, 3.0, 0.22, steelMat);
+    }
+    const awningRoof = new THREE.Mesh(new THREE.BoxGeometry(9.8, 0.24, 4.6), tentMat);
+    awningRoof.position.set(0, gAt(0, 15.6) + 3.05, 15.6);
+    awningRoof.castShadow = true;
+    group.add(awningRoof);
+    addBoxObstacle(group, obstacles, 0, gAt(0, 11.5), 11.5, 4.4, 0.92, 0.9, woodMat);
     // Wooden courtyard benches
     for (const bx of [-6, 6]) {
       addBoxObstacle(group, obstacles, bx, gAt(bx, 3), 3, 3.4, 0.55, 0.85, woodMat);

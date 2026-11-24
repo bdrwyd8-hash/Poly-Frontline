@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { Check, Copy, Globe, Sliders, Users, Volume2, VolumeX, Wrench } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, Lock, RotateCcw, Sliders, Swords, Volume2, VolumeX, Wrench } from 'lucide-react';
 import desertImg from '../assets/images/map_desert_alamein_1795126496434.jpg';
 import forestImg from '../assets/images/map_forest_ardennes_1795126493538.jpg';
 import normandyImg from '../assets/images/map_normandy_valley_1795126495807.jpg';
 import stalingradImg from '../assets/images/map_stalingrad_ruins_1795126496029.jpg';
+import { CAMPAIGN_MISSIONS } from '../game/campaignData';
+import type { CampaignSaveProgress } from '../game/campaignSave';
 import { STRINGS } from '../game/i18n';
 import { PRIMARY_WEAPON_IDS, SLOT2_WEAPON_IDS, WEAPONS } from '../game/rules';
-import type { GameMode, Lang, MapId, Team, WeaponId } from '../game/types';
+import type { GameMode, Lang, MapId, WeaponId } from '../game/types';
 import { WeaponIllustration } from './WeaponIllustration';
 
 const MAP_ARTWORK: Record<MapId, { img: string; fallbackBg: string }> = {
@@ -16,6 +18,8 @@ const MAP_ARTWORK: Record<MapId, { img: string; fallbackBg: string }> = {
   stalingrad: { img: stalingradImg, fallbackBg: 'linear-gradient(135deg, #2b2d31 0%, #5e6268 100%)' },
 };
 
+const MATCH_DURATIONS_SEC = [120, 300, 600, 900, 1200] as const;
+
 interface TitleOverlayProps {
   lang: Lang;
   mapId: MapId;
@@ -23,10 +27,8 @@ interface TitleOverlayProps {
   slot1Id: WeaponId;
   slot2Id: WeaponId;
   muted: boolean;
-  isOnline: boolean;
-  roomCode: string;
-  callsign: string;
-  preferredTeam: Team | null;
+  matchDurationSeconds: number;
+  campaignProgress: CampaignSaveProgress;
   onToggleLang: () => void;
   onToggleMute: () => void;
   onOpenSettings: () => void;
@@ -35,11 +37,10 @@ interface TitleOverlayProps {
   onSelectGameMode: (mode: GameMode) => void;
   onSelectSlot1: (weaponId: WeaponId) => void;
   onSelectSlot2: (weaponId: WeaponId) => void;
-  onChangeOnline: (enabled: boolean) => void;
-  onChangeRoomCode: (code: string) => void;
-  onChangeCallsign: (name: string) => void;
-  onChangePreferredTeam: (team: Team | null) => void;
+  onSelectMatchDuration: (seconds: number) => void;
   onStart: () => void;
+  onStartCampaignMission: (missionId: number) => void;
+  onResetCampaign: () => void;
 }
 
 export function TitleOverlay({
@@ -49,10 +50,8 @@ export function TitleOverlay({
   slot1Id,
   slot2Id,
   muted,
-  isOnline,
-  roomCode,
-  callsign,
-  preferredTeam,
+  matchDurationSeconds,
+  campaignProgress,
   onToggleLang,
   onToggleMute,
   onOpenSettings,
@@ -61,28 +60,19 @@ export function TitleOverlay({
   onSelectGameMode,
   onSelectSlot1,
   onSelectSlot2,
-  onChangeOnline,
-  onChangeRoomCode,
-  onChangeCallsign,
-  onChangePreferredTeam,
+  onSelectMatchDuration,
   onStart,
+  onStartCampaignMission,
+  onResetCampaign,
 }: TitleOverlayProps) {
   const t = STRINGS[lang];
   const isRtl = lang === 'ar';
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [lobbyTab, setLobbyTab] = useState<'skirmish' | 'campaign'>('skirmish');
 
-  const handleCopyInvite = async () => {
-    const cleanRoom = roomCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '') || 'FRONTLINE';
-    const url = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(cleanRoom)}&map=${mapId}&mode=${gameMode}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedLink(true);
-      window.setTimeout(() => setCopiedLink(false), 1800);
-    } catch {
-      setCopiedLink(true);
-      window.setTimeout(() => setCopiedLink(false), 1800);
-    }
-  };
+  const continueMissionId = Math.max(
+    1,
+    Math.min(campaignProgress.highestUnlockedMission, campaignProgress.lastPlayedMission || 1),
+  );
 
   return (
     <div
@@ -163,294 +153,374 @@ export function TitleOverlay({
       </div>
 
       {/* Main Visual Lobby Panel */}
-      <div className="w-full max-w-4xl my-auto pointer-events-auto overflow-y-auto max-h-[calc(100vh-70px)] pr-1 space-y-2.5">
-        {/* Row 1: Solo vs Online Multiplayer Switch + Mode */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-          <div className="md:col-span-6 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              data-testid="playmode-offline"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onChangeOnline(false);
-              }}
-              className={`h-9 px-2.5 border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                !isOnline
-                  ? 'bg-amber-500 text-stone-950 border-amber-300'
-                  : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{t.playModeOffline}</span>
-            </button>
-            <button
-              type="button"
-              data-testid="playmode-online"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onChangeOnline(true);
-              }}
-              className={`h-9 px-2.5 border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                isOnline
-                  ? 'bg-emerald-500 text-stone-950 border-emerald-300'
-                  : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{t.playModeOnline}</span>
-            </button>
-          </div>
-
-          <div className="md:col-span-6 grid grid-cols-3 gap-1">
-            {(['conquest', 'tdm', 'hardcore'] as GameMode[]).map((gm) => (
-              <button
-                key={gm}
-                type="button"
-                data-testid={`mode-${gm}`}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onSelectGameMode(gm);
-                }}
-                className={`h-9 px-1.5 text-[11px] font-semibold border transition-colors cursor-pointer truncate ${
-                  gameMode === gm
-                    ? 'bg-stone-100 text-stone-950 border-white'
-                    : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
-                }`}
-              >
-                {t[gm]}
-              </button>
-            ))}
-          </div>
+      <div className="w-full max-w-4xl my-auto pointer-events-auto overflow-y-auto max-h-[calc(100vh-76px)] pr-1 space-y-2.5">
+        {/* Primary Experience Selector: Skirmish vs Story Campaign */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            data-testid="tab-skirmish"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              setLobbyTab('skirmish');
+            }}
+            className={`h-10 px-3 border text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              lobbyTab === 'skirmish'
+                ? 'bg-amber-500 text-stone-950 border-amber-300 shadow'
+                : 'bg-stone-900/92 text-stone-200 border-stone-700 hover:bg-stone-800'
+            }`}
+          >
+            <Swords className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t.skirmishModeBtn}</span>
+          </button>
+          <button
+            type="button"
+            data-testid="tab-campaign"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              setLobbyTab('campaign');
+            }}
+            className={`h-10 px-3 border text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              lobbyTab === 'campaign'
+                ? 'bg-emerald-500 text-stone-950 border-emerald-300 shadow'
+                : 'bg-stone-900/92 text-stone-200 border-stone-700 hover:bg-stone-800'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t.storyCampaignBtn}</span>
+          </button>
         </div>
 
-        {/* Optional Online Room Bar */}
-        {isOnline && (
-          <div
-            data-testid="online-room-panel"
-            className="grid grid-cols-2 sm:grid-cols-12 gap-1.5 p-2 bg-stone-950/90 border border-emerald-500/50"
-          >
-            <div className="sm:col-span-3">
-              <label className="block text-[10px] text-stone-400 mb-0.5">{t.callsignLabel}</label>
-              <input
-                type="text"
-                data-testid="input-callsign"
-                value={callsign}
-                maxLength={16}
-                onChange={(e) => onChangeCallsign(e.target.value)}
-                className="w-full h-8 px-2 bg-stone-900 border border-stone-700 text-stone-100 text-xs focus:outline-none focus:border-emerald-400"
-              />
-            </div>
-            <div className="sm:col-span-3">
-              <label className="block text-[10px] text-stone-400 mb-0.5">{t.roomCodeLabel}</label>
-              <input
-                type="text"
-                dir="ltr"
-                data-testid="input-room-code"
-                value={roomCode}
-                maxLength={14}
-                onChange={(e) => onChangeRoomCode(e.target.value.toUpperCase())}
-                className="w-full h-8 px-2 bg-stone-900 border border-stone-700 text-emerald-300 font-mono-nums text-xs font-bold focus:outline-none focus:border-emerald-400"
-              />
-            </div>
-            <div className="sm:col-span-3">
-              <label className="block text-[10px] text-stone-400 mb-0.5">{t.teamSelectLabel}</label>
-              <div className="grid grid-cols-3 gap-1 h-8">
-                {([null, 'allies', 'axis'] as const).map((tm) => (
+        {lobbyTab === 'skirmish' ? (
+          <>
+            {/* Row 1: Game Mode & Match Duration */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div className="md:col-span-6 grid grid-cols-3 gap-1">
+                {(['conquest', 'tdm', 'hardcore'] as GameMode[]).map((gm) => (
                   <button
-                    key={tm ?? 'auto'}
+                    key={gm}
                     type="button"
-                    onClick={() => onChangePreferredTeam(tm)}
-                    className={`text-[10px] font-bold border cursor-pointer truncate px-1 ${
-                      preferredTeam === tm
-                        ? tm === 'axis'
-                          ? 'bg-red-600 text-white border-red-400'
-                          : tm === 'allies'
-                            ? 'bg-blue-600 text-white border-blue-400'
-                            : 'bg-emerald-500 text-stone-950 border-emerald-300'
-                        : 'bg-stone-900 text-stone-300 border-stone-700 hover:bg-stone-800'
+                    data-testid={`mode-${gm}`}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      onSelectGameMode(gm);
+                    }}
+                    className={`h-9 px-1.5 text-[11px] font-semibold border transition-colors cursor-pointer truncate ${
+                      gameMode === gm
+                        ? 'bg-stone-100 text-stone-950 border-white'
+                        : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
                     }`}
                   >
-                    {tm === null ? t.teamAuto : tm === 'allies' ? t.allies : t.axis}
+                    {t[gm]}
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="sm:col-span-3 flex items-end">
-              <button
-                type="button"
-                data-testid="btn-copy-invite"
-                onClick={handleCopyInvite}
-                className="w-full h-8 px-2 bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-100 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                {copiedLink ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5 text-amber-400" />
-                )}
-                <span className="truncate">{copiedLink ? t.copiedInviteBtn : t.copyInviteBtn}</span>
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* Row 2: Visual Battlefield Theater Image Cards */}
-        <div>
-          <div className="text-[11px] font-semibold text-stone-300 mb-1">{t.mapLabel}</div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {(['forest', 'desert', 'normandy', 'stalingrad'] as MapId[]).map((m) => {
-              const art = MAP_ARTWORK[m];
-              const active = mapId === m;
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  data-testid={`map-${m}`}
-                  onClick={(e) => {
-                    e.currentTarget.blur();
-                    onSelectMap(m);
-                  }}
-                  style={{ background: art.fallbackBg }}
-                  className={`relative h-16 sm:h-20 overflow-hidden border transition-colors cursor-pointer group text-start ${
-                    active
-                      ? 'border-amber-400 ring-1 ring-amber-400/60'
-                      : 'border-stone-700/90 opacity-85 hover:opacity-100 hover:border-stone-500'
-                  }`}
-                >
-                  <img
-                    src={art.img}
-                    alt={t[m]}
-                    referrerPolicy="no-referrer"
-                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      background:
-                        'linear-gradient(to top, rgba(10,12,11,0.92) 0%, rgba(10,12,11,0.28) 58%, rgba(10,12,11,0.08) 100%)',
-                    }}
-                  />
-                  <div className="relative h-full flex items-end justify-between px-2 py-1.5">
-                    <span
-                      className={`text-xs font-bold leading-tight truncate ${
-                        active ? 'text-amber-300' : 'text-stone-100'
-                      }`}
-                    >
-                      {t[m]}
-                    </span>
-                    {active && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Row 3: Visual Weapon Cards (Slot 1 + Slot 2) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <div className="text-[11px] font-semibold text-stone-300 mb-1">{t.slot1Label}</div>
-            <div className="grid grid-cols-1 gap-1 max-h-[168px] overflow-y-auto pr-0.5">
-              {PRIMARY_WEAPON_IDS.map((wId) => {
-                const spec = WEAPONS[wId];
-                const active = slot1Id === wId;
-                return (
-                  <button
-                    key={wId}
-                    type="button"
-                    data-testid={`weapon-s1-${wId}`}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
-                      onSelectSlot1(wId);
-                    }}
-                    className={`px-2 py-1 text-start border flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-stone-100 text-stone-950 border-white'
-                        : 'bg-stone-900/92 text-stone-200 border-stone-700 hover:bg-stone-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className={`shrink-0 overflow-hidden border ${
-                          active ? 'bg-stone-200 border-stone-400' : 'bg-stone-950/75 border-stone-800'
+              <div className="md:col-span-6 flex items-center gap-1.5 bg-stone-950/80 border border-stone-700/80 px-2 py-1">
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-stone-300 shrink-0">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{t.matchDurationLabel}</span>
+                </span>
+                <div dir="ltr" className="grid grid-cols-5 gap-1 flex-1">
+                  {MATCH_DURATIONS_SEC.map((sec) => {
+                    const mins = Math.round(sec / 60);
+                    const active = Math.abs(matchDurationSeconds - sec) < 30;
+                    return (
+                      <button
+                        key={sec}
+                        type="button"
+                        data-testid={`duration-${sec}`}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          onSelectMatchDuration(sec);
+                        }}
+                        className={`h-7 text-[11px] font-mono-nums font-bold border transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-amber-500 text-stone-950 border-amber-300'
+                            : 'bg-stone-900 text-stone-200 border-stone-700 hover:bg-stone-800'
                         }`}
                       >
-                        <WeaponIllustration weaponId={wId} className="w-20 h-7" />
-                      </div>
-                      <span className="text-[11px] font-bold truncate">
-                        {lang === 'ar' ? spec.nameAr : spec.nameEn}
-                      </span>
-                    </div>
-                    <span dir="ltr" className="text-[10px] font-mono-nums opacity-75 shrink-0">
-                      {spec.magSize}/{spec.reserveMax}
-                    </span>
-                  </button>
-                );
-              })}
+                        {mins}m
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-col justify-between gap-1.5">
+            {/* Row 2: Visual Battlefield Theater Image Cards */}
             <div>
-              <div className="text-[11px] font-semibold text-amber-300 mb-1">{t.slot2Label}</div>
-              <div className="grid grid-cols-1 gap-1 max-h-[124px] overflow-y-auto pr-0.5">
-                {SLOT2_WEAPON_IDS.map((wId) => {
-                  const spec = WEAPONS[wId];
-                  const active = slot2Id === wId;
+              <div className="text-[11px] font-semibold text-stone-300 mb-1">{t.mapLabel}</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(['forest', 'desert', 'normandy', 'stalingrad'] as MapId[]).map((m) => {
+                  const art = MAP_ARTWORK[m];
+                  const active = mapId === m;
                   return (
                     <button
-                      key={wId}
+                      key={m}
                       type="button"
-                      data-testid={`weapon-s2-${wId}`}
+                      data-testid={`map-${m}`}
                       onClick={(e) => {
                         e.currentTarget.blur();
-                        onSelectSlot2(wId);
+                        onSelectMap(m);
                       }}
-                      className={`px-2 py-1 text-start border flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                      style={{ background: art.fallbackBg }}
+                      className={`relative h-16 sm:h-20 overflow-hidden border transition-colors cursor-pointer group text-start ${
                         active
-                          ? 'bg-amber-400 text-stone-950 border-amber-200'
-                          : 'bg-stone-900/92 text-stone-200 border-stone-700 hover:bg-stone-800'
+                          ? 'border-amber-400 ring-1 ring-amber-400/60'
+                          : 'border-stone-700/90 opacity-85 hover:opacity-100 hover:border-stone-500'
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div
-                          className={`shrink-0 overflow-hidden border ${
-                            active ? 'bg-amber-300 border-amber-600' : 'bg-stone-950/75 border-stone-800'
+                      <img
+                        src={art.img}
+                        alt={t[m]}
+                        referrerPolicy="no-referrer"
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background:
+                            'linear-gradient(to top, rgba(10,12,11,0.92) 0%, rgba(10,12,11,0.28) 58%, rgba(10,12,11,0.08) 100%)',
+                        }}
+                      />
+                      <div className="relative h-full flex items-end justify-between px-2 py-1.5">
+                        <span
+                          className={`text-xs font-bold leading-tight truncate ${
+                            active ? 'text-amber-300' : 'text-stone-100'
                           }`}
                         >
-                          <WeaponIllustration weaponId={wId} className="w-20 h-7" />
-                        </div>
-                        <span className="text-[11px] font-bold truncate">
-                          {lang === 'ar' ? spec.nameAr : spec.nameEn}
+                          {t[m]}
                         </span>
+                        {active && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />}
                       </div>
-                      <span dir="ltr" className="text-[10px] font-mono-nums opacity-75 shrink-0">
-                        {spec.magSize}/{spec.reserveMax}
-                      </span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="px-2 py-1 bg-stone-950/85 border border-stone-700/80 text-[10px] text-stone-300 flex items-center justify-between gap-2">
-              <span className="truncate">{t.slot3Label} · {t.gadgetsBadge}</span>
-              <span dir="ltr" className="font-mono-nums text-amber-300 shrink-0">7/56</span>
+            {/* Row 3: Visual Weapon Cards (Slot 1 + Slot 2) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <div className="text-[11px] font-semibold text-stone-300 mb-1">{t.slot1Label}</div>
+                <div className="grid grid-cols-1 gap-1 max-h-[168px] overflow-y-auto pr-0.5">
+                  {PRIMARY_WEAPON_IDS.map((wId) => {
+                    const spec = WEAPONS[wId];
+                    const active = slot1Id === wId;
+                    return (
+                      <button
+                        key={wId}
+                        type="button"
+                        data-testid={`weapon-s1-${wId}`}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          onSelectSlot1(wId);
+                        }}
+                        className={`px-2 py-1 text-start border flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-stone-100 text-stone-950 border-white'
+                            : 'bg-stone-900/92 text-stone-200 border-stone-700 hover:bg-stone-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className={`shrink-0 overflow-hidden border ${
+                              active ? 'bg-stone-200 border-stone-400' : 'bg-stone-950/75 border-stone-800'
+                            }`}
+                          >
+                            <WeaponIllustration weaponId={wId} className="w-20 h-7" />
+                          </div>
+                          <span className="text-[11px] font-bold truncate">
+                            {lang === 'ar' ? spec.nameAr : spec.nameEn}
+                          </span>
+                        </div>
+                        <span dir="ltr" className="text-[10px] font-mono-nums opacity-75 shrink-0">
+                          {spec.magSize}/{spec.reserveMax}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-col justify-between gap-1.5">
+                <div>
+                  <div className="text-[11px] font-semibold text-amber-300 mb-1">{t.slot2Label}</div>
+                  <div className="grid grid-cols-1 gap-1 max-h-[124px] overflow-y-auto pr-0.5">
+                    {SLOT2_WEAPON_IDS.map((wId) => {
+                      const spec = WEAPONS[wId];
+                      const active = slot2Id === wId;
+                      return (
+                        <button
+                          key={wId}
+                          type="button"
+                          data-testid={`weapon-s2-${wId}`}
+                          onClick={(e) => {
+                            e.currentTarget.blur();
+                            onSelectSlot2(wId);
+                          }}
+                          className={`px-2 py-1 text-start border flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-amber-400 text-stone-950 border-amber-200'
+                              : 'bg-stone-900/92 text-stone-200 border-stone-700 hover:bg-stone-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className={`shrink-0 overflow-hidden border ${
+                                active ? 'bg-amber-300 border-amber-600' : 'bg-stone-950/75 border-stone-800'
+                              }`}
+                            >
+                              <WeaponIllustration weaponId={wId} className="w-20 h-7" />
+                            </div>
+                            <span className="text-[11px] font-bold truncate">
+                              {lang === 'ar' ? spec.nameAr : spec.nameEn}
+                            </span>
+                          </div>
+                          <span dir="ltr" className="text-[10px] font-mono-nums opacity-75 shrink-0">
+                            {spec.magSize}/{spec.reserveMax}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="px-2 py-1 bg-stone-950/85 border border-stone-700/80 text-[10px] text-stone-300 flex items-center justify-between gap-2">
+                  <span className="truncate">{t.slot3Label} · {t.gadgetsBadge}</span>
+                  <span dir="ltr" className="font-mono-nums text-amber-300 shrink-0">7/56</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Deploy Button */}
+            <button
+              type="button"
+              data-start="true"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onStart();
+              }}
+              className="w-full h-10 bg-amber-500 hover:bg-amber-400 text-stone-950 font-display text-lg font-bold tracking-wider uppercase border border-amber-300 transition-colors cursor-pointer shadow-lg"
+            >
+              {t.deploy}
+            </button>
+          </>
+        ) : (
+          /* STORY CAMPAIGN VIEW ("ON THE FRONTLINE — JORDAN") */
+          <div
+            data-testid="campaign-lobby-panel"
+            className="bg-stone-950/88 border border-emerald-500/40 p-3 space-y-3"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-xl sm:text-2xl font-extrabold tracking-wide text-emerald-400">
+                  {t.campaignTitle}
+                </h2>
+                <p className="text-[11px] text-stone-300">{t.campaignSubtitle}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  data-testid="btn-campaign-continue"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onStartCampaignMission(continueMissionId);
+                  }}
+                  className="h-9 px-3.5 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs border border-emerald-300 cursor-pointer"
+                >
+                  {t.campaignContinueBtn} #{continueMissionId}
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-campaign-reset"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onResetCampaign();
+                  }}
+                  title={t.campaignResetBtn}
+                  className="h-9 px-2.5 bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs border border-stone-700 cursor-pointer flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.campaignResetBtn}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              {([1, 2, 3, 4] as const).map((actNum) => {
+                const missions = CAMPAIGN_MISSIONS.filter((m) => m.act === actNum);
+                const actHeading =
+                  lang === 'ar' ? missions[0]?.actTitleAr : missions[0]?.actTitleEn;
+                return (
+                  <div key={actNum} className="space-y-1.5">
+                    <div className="text-[11px] font-bold tracking-wider text-amber-400 uppercase border-b border-stone-800 pb-0.5">
+                      {actHeading}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                      {missions.map((m) => {
+                        const unlocked = m.id <= campaignProgress.highestUnlockedMission;
+                        const completed = campaignProgress.completedMissions.includes(m.id);
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            disabled={!unlocked}
+                            data-testid={`campaign-mission-${m.id}`}
+                            onClick={(e) => {
+                              e.currentTarget.blur();
+                              if (unlocked) onStartCampaignMission(m.id);
+                            }}
+                            className={`p-2 border text-start flex flex-col justify-between gap-1.5 transition-colors ${
+                              unlocked
+                                ? 'bg-stone-900/95 border-stone-700 hover:border-emerald-400 hover:bg-stone-800/90 cursor-pointer'
+                                : 'bg-stone-950/70 border-stone-800/80 opacity-55 cursor-not-allowed'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-1.5">
+                              <div className="min-w-0">
+                                <div className="text-[10px] font-mono-nums font-bold text-stone-400">
+                                  M{m.id} · {lang === 'ar' ? m.locationAr : m.locationEn}
+                                </div>
+                                <div className="text-xs font-bold text-stone-100 truncate">
+                                  {lang === 'ar' ? m.titleAr : m.titleEn}
+                                </div>
+                              </div>
+                              {completed ? (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                              ) : !unlocked ? (
+                                <Lock className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+                              ) : null}
+                            </div>
+                            <div className="text-[10px] text-stone-400 line-clamp-1">
+                              {unlocked
+                                ? lang === 'ar'
+                                  ? m.subtitleAr
+                                  : m.subtitleEn
+                                : t.campaignLockedMsg}
+                            </div>
+                            {unlocked && (
+                              <div className="flex items-center justify-between pt-0.5 text-[10px] font-bold">
+                                <span className={completed ? 'text-emerald-400' : 'text-amber-400'}>
+                                  {completed ? t.campaignReplayBtn : t.campaignPlayBtn}
+                                </span>
+                                {completed && (
+                                  <span className="px-1 bg-emerald-950 text-emerald-300 border border-emerald-600/50 text-[9px]">
+                                    {t.campaignCompletedBadge}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
-
-        {/* Deploy Button */}
-        <button
-          type="button"
-          data-start="true"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onStart();
-          }}
-          className="w-full h-10 bg-amber-500 hover:bg-amber-400 text-stone-950 font-display text-lg font-bold tracking-wider uppercase border border-amber-300 transition-colors cursor-pointer shadow-lg"
-        >
-          {t.deploy}
-        </button>
+        )}
       </div>
 
       {/* Bottom Hint */}

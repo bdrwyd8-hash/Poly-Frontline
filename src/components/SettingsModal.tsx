@@ -7,6 +7,8 @@ import type { ControlSettings, GraphicsQuality, KeyAction, Lang, TargetFps } fro
 interface SettingsModalProps {
   lang: Lang;
   settings: ControlSettings;
+  resolvedGraphicsQuality?: 'low' | 'medium' | 'high';
+  resolvedTargetFps?: 0 | 30 | 60 | 120;
   onChange: (next: ControlSettings) => void;
   onOpenHudEditor: () => void;
   onClose: () => void;
@@ -37,6 +39,8 @@ const COMBAT_ACTIONS: KeyAction[] = [
   'toggleAccessory',
   'dropBomb',
   'fireMissile',
+  'flare',
+  'toggleCamera',
   'slot1',
   'slot2',
   'slot3',
@@ -47,6 +51,8 @@ const COMBAT_ACTIONS: KeyAction[] = [
 export function SettingsModal({
   lang,
   settings,
+  resolvedGraphicsQuality = 'medium',
+  resolvedTargetFps = 60,
   onChange,
   onOpenHudEditor,
   onClose,
@@ -131,6 +137,13 @@ export function SettingsModal({
       </div>
     );
   };
+
+  const resolvedGfxLabel =
+    resolvedGraphicsQuality === 'low'
+      ? t.graphicsLow
+      : resolvedGraphicsQuality === 'high'
+        ? t.graphicsHigh
+        : t.graphicsMedium;
 
   return (
     <div
@@ -287,19 +300,28 @@ export function SettingsModal({
             </label>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 gap-2.5">
             <div className="bg-stone-950/85 border border-stone-800 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <span className="text-xs sm:text-sm font-semibold text-stone-200">
-                {t.graphicsQualityLabel}
-              </span>
-              <div className="grid grid-cols-3 gap-1.5 sm:w-56">
-                {(['low', 'medium', 'high'] as GraphicsQuality[]).map((q) => {
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-semibold text-stone-200">
+                  {t.graphicsQualityLabel}
+                </span>
+                {settings.graphicsQuality === 'auto' && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-600/60">
+                    {resolvedGfxLabel}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-1.5 sm:w-72">
+                {(['auto', 'low', 'medium', 'high'] as GraphicsQuality[]).map((q) => {
                   const label =
-                    q === 'low'
-                      ? t.graphicsLow
-                      : q === 'medium'
-                        ? t.graphicsMedium
-                        : t.graphicsHigh;
+                    q === 'auto'
+                      ? t.graphicsAuto
+                      : q === 'low'
+                        ? t.graphicsLow
+                        : q === 'medium'
+                          ? t.graphicsMedium
+                          : t.graphicsHigh;
                   const active = settings.graphicsQuality === q;
                   return (
                     <button
@@ -310,7 +332,7 @@ export function SettingsModal({
                         e.currentTarget.blur();
                         onChange({ ...settings, graphicsQuality: q });
                       }}
-                      className={`h-8 px-2 text-xs font-bold border transition-colors cursor-pointer ${
+                      className={`h-8 px-1.5 text-[11px] font-bold border transition-colors cursor-pointer truncate ${
                         active
                           ? 'bg-amber-500 text-stone-950 border-amber-300'
                           : 'bg-stone-800 text-stone-200 border-stone-600 hover:bg-stone-700'
@@ -324,12 +346,28 @@ export function SettingsModal({
             </div>
 
             <div className="bg-stone-950/85 border border-stone-800 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <span className="text-xs sm:text-sm font-semibold text-stone-200">
-                {t.targetFpsLabel}
-              </span>
-              <div dir="ltr" className="grid grid-cols-3 gap-1.5 sm:w-56">
-                {([60, 120, 0] as TargetFps[]).map((fps) => {
-                  const label = fps === 60 ? t.fps60 : fps === 120 ? t.fps120 : t.fpsMax;
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-semibold text-stone-200">
+                  {t.targetFpsLabel}
+                </span>
+                {settings.targetFps === 'auto' && (
+                  <span dir="ltr" className="px-1.5 py-0.5 text-[10px] font-mono-nums font-bold bg-emerald-950 text-emerald-300 border border-emerald-600/60">
+                    {resolvedTargetFps === 0 ? 'MAX' : `${resolvedTargetFps} FPS`}
+                  </span>
+                )}
+              </div>
+              <div dir="ltr" className="grid grid-cols-5 gap-1.5 sm:w-80">
+                {(['auto', 30, 60, 120, 0] as TargetFps[]).map((fps) => {
+                  const label =
+                    fps === 'auto'
+                      ? t.autoOption
+                      : fps === 30
+                        ? t.fps30
+                        : fps === 60
+                          ? t.fps60
+                          : fps === 120
+                            ? t.fps120
+                            : t.fpsMax;
                   const active = settings.targetFps === fps;
                   return (
                     <button
@@ -340,7 +378,7 @@ export function SettingsModal({
                         e.currentTarget.blur();
                         onChange({ ...settings, targetFps: fps });
                       }}
-                      className={`h-8 px-1.5 text-[11px] font-bold border transition-colors cursor-pointer ${
+                      className={`h-8 px-1 text-[10px] sm:text-[11px] font-bold border transition-colors cursor-pointer truncate ${
                         active
                           ? 'bg-amber-500 text-stone-950 border-amber-300'
                           : 'bg-stone-800 text-stone-200 border-stone-600 hover:bg-stone-700'

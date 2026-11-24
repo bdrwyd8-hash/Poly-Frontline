@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Briefcase, Move, Pause, Sliders, Volume2, VolumeX } from 'lucide-react';
+import { Briefcase, Camera, FastForward, LogOut, Move, Pause, Sliders, Volume2, VolumeX } from 'lucide-react';
+import { RECRUITMENT_LETTER_DATA } from '../game/campaignData';
 import { STRINGS } from '../game/i18n';
 import { ALLY_BASE_CENTER, ARENA_RADIUS, WEAPONS } from '../game/rules';
 import type { HudSnapshot, KillcamInfo, Lang, WeaponId } from '../game/types';
@@ -9,9 +10,14 @@ interface GameHudProps {
   lang: Lang;
   onToggleMute: () => void;
   onPause: () => void;
+  onExitToMenu: () => void;
   onOpenSettings: () => void;
   onOpenHudEditor: () => void;
   onOpenBackpack: () => void;
+  onToggleCockpitCamera: () => void;
+  onDismissCampaignLetter: () => void;
+  onSkipCampaignCutscene: () => void;
+  onNextCampaignMission: () => void;
 }
 
 function WeaponSilhouetteSvg({ weaponId }: { weaponId: WeaponId }) {
@@ -182,6 +188,8 @@ function getKillcamWeaponLabel(weaponId: KillcamInfo['killerWeaponId'], lang: La
   if (weaponId === 'aircraft_cannon') return lang === 'ar' ? 'مدفع المقاتلة المزدوج' : 'Fighter Twin Cannons';
   if (weaponId === 'aircraft_bomb') return lang === 'ar' ? 'قنبلة جوية ثقيلة' : 'Aerial Bomb';
   if (weaponId === 'aircraft_missile') return lang === 'ar' ? 'صاروخ جو-جو حراري' : 'IR Homing Missile';
+  if (weaponId === 'helicopter_cannon') return lang === 'ar' ? 'مدفع المروحية 20مم' : 'Helicopter 20mm Cannon';
+  if (weaponId === 'helicopter_rocket') return lang === 'ar' ? 'صواريخ المروحية الهجومية' : 'Helicopter Rocket Salvo';
   if (weaponId === 'grenade') return lang === 'ar' ? 'قنبلة يدوية' : 'Frag Grenade';
   const w = WEAPONS[weaponId];
   return w ? (lang === 'ar' ? w.nameAr : w.nameEn) : String(weaponId);
@@ -192,15 +200,25 @@ export function GameHud({
   lang,
   onToggleMute,
   onPause,
+  onExitToMenu,
   onOpenSettings,
   onOpenHudEditor,
   onOpenBackpack,
+  onToggleCockpitCamera,
+  onDismissCampaignLetter,
+  onSkipCampaignCutscene,
+  onNextCampaignMission,
 }: GameHudProps) {
   const t = STRINGS[lang];
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
   const staticMinimapRef = useRef<{ canvas: HTMLCanvasElement; key: string } | null>(null);
   const weapon = WEAPONS[hud.weaponId];
   const activeZone = hud.zones.find((z) => z.id === hud.activeZoneId) || null;
+  const campaign = hud.campaign;
+  const isNonCombatCampaign = Boolean(campaign?.isNonCombat);
+  const isCombatHidden = Boolean(
+    campaign?.isNonCombat || campaign?.showLetterOverlay || campaign?.missionComplete,
+  );
 
   useEffect(() => {
     const canvas = minimapRef.current;
@@ -298,6 +316,15 @@ export function GameHud({
         ctx.lineTo(ax - 3.5, ay + 2);
         ctx.closePath();
         ctx.fill();
+      } else if (actor.vehicleKind === 'helicopter') {
+        ctx.strokeStyle = actor.team === 'allies' ? '#60a5fa' : '#f87171';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(ax - 3.6, ay - 3.6);
+        ctx.lineTo(ax + 3.6, ay + 3.6);
+        ctx.moveTo(ax + 3.6, ay - 3.6);
+        ctx.lineTo(ax - 3.6, ay + 3.6);
+        ctx.stroke();
       } else {
         ctx.beginPath();
         ctx.arc(ax, ay, 2.2, 0, Math.PI * 2);
@@ -525,76 +552,127 @@ export function GameHud({
         </div>
       </div>
 
-      {/* TOP-CENTER: Conquest Ticket Bars + A..E Flags */}
-      <div className="fixed top-2.5 lg:top-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-290px)] lg:max-w-none flex flex-col items-center gap-1">
-        <div className="flex items-center gap-1 lg:gap-3 bg-stone-950/90 border border-stone-600/80 px-1.5 lg:px-3 py-1">
-          <div className="flex items-center gap-1 lg:gap-1.5">
-            <span className="text-[10px] lg:text-[11px] font-bold text-blue-400">{t.allies}</span>
-            <div className="w-10 lg:w-28 h-2 bg-stone-800 overflow-hidden">
-              <div
-                className="h-full bg-blue-500 transition-[width] duration-150"
-                style={{ width: `${alliesPct}%` }}
-              />
+      {/* TOP-CENTER: Story Campaign Header OR Conquest Ticket Bars */}
+      {campaign?.active ? (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          data-testid="hud-campaign-header"
+          className="fixed top-2.5 lg:top-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-240px)] flex flex-col items-center gap-1"
+        >
+          <div className="bg-stone-950/90 border border-emerald-500/60 px-3 py-1.5 text-center shadow-lg">
+            <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-emerald-400">
+              <span>ACT {campaign.actNumber} · M{campaign.missionId}</span>
+              <span>·</span>
+              <span className="truncate max-w-[200px]">
+                {lang === 'ar' ? campaign.locationAr : campaign.locationEn}
+              </span>
+              {hud.timeRemaining > 0 && (
+                <>
+                  <span>·</span>
+                  <span dir="ltr" className="font-mono-nums text-amber-300">
+                    {formatClock(hud.timeRemaining)}
+                  </span>
+                </>
+              )}
             </div>
-            <span className="font-mono-nums text-[11px] lg:text-sm font-bold text-stone-100 w-7 text-right">
-              {hud.alliesTickets}
-            </span>
-          </div>
-
-          <div className="px-1.5 py-0.5 bg-stone-900 border border-stone-700 font-mono-nums text-[10px] lg:text-[11px] font-bold text-amber-300">
-            {formatClock(hud.timeRemaining)}
-          </div>
-
-          <div className="flex items-center gap-1 lg:gap-1.5">
-            <span className="font-mono-nums text-[11px] lg:text-sm font-bold text-stone-100 w-7 text-left">
-              {hud.axisTickets}
-            </span>
-            <div className="w-10 lg:w-28 h-2 bg-stone-800 overflow-hidden">
-              <div
-                className="h-full bg-red-500 transition-[width] duration-150 ml-auto"
-                style={{ width: `${axisPct}%` }}
-              />
+            <div className="text-xs font-bold text-stone-100 mt-0.5">
+              {lang === 'ar' ? campaign.titleAr : campaign.titleEn}
             </div>
-            <span className="text-[10px] lg:text-[11px] font-bold text-red-400">{t.axis}</span>
+            <div className="text-[10px] text-amber-300/95 truncate max-w-[340px]">
+              {lang === 'ar' ? campaign.objectiveAr : campaign.objectiveEn}
+            </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-1 lg:gap-1.5">
-          {hud.zones.map((z) => {
-            const bg =
-              z.owner === 'allies'
-                ? 'bg-blue-600 border-blue-400 text-white'
-                : z.owner === 'axis'
-                  ? 'bg-red-600 border-red-400 text-white'
-                  : 'bg-stone-900/90 border-stone-500 text-stone-200';
-            return (
-              <div
-                key={z.id}
-                className={`w-5 h-5 lg:w-7 lg:h-7 border lg:border-2 flex items-center justify-center font-display font-bold text-[11px] lg:text-sm ${bg}`}
-              >
-                {z.label}
-              </div>
-            );
-          })}
-          {hud.isOnline && (
-            <div
-              data-testid="hud-online-badge"
-              dir="ltr"
-              className={`ml-1 px-2 py-0.5 text-[10px] font-mono-nums font-bold border ${
-                hud.onlineStatus === 'connected'
-                  ? 'bg-emerald-950/90 border-emerald-500/70 text-emerald-300'
-                  : 'bg-amber-950/90 border-amber-500/70 text-amber-300'
-              }`}
+          {campaign.canSkipCutscene && (
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="btn-skip-cutscene"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.currentTarget.blur();
+                onSkipCampaignCutscene();
+              }}
+              className="pointer-events-auto h-7 px-3 bg-stone-900/95 hover:bg-stone-800 border border-amber-400/75 text-amber-300 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              {hud.onlineRoomCode} · {hud.onlinePlayerCount}
-            </div>
+              <FastForward className="w-3.5 h-3.5" />
+              <span>{t.skipCutsceneBtn}</span>
+            </button>
           )}
         </div>
-      </div>
+      ) : (
+        <div className="fixed top-2.5 lg:top-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-290px)] lg:max-w-none flex flex-col items-center gap-1">
+          <div className="flex items-center gap-1 lg:gap-3 bg-stone-950/90 border border-stone-600/80 px-1.5 lg:px-3 py-1">
+            <div className="flex items-center gap-1 lg:gap-1.5">
+              <span className="text-[10px] lg:text-[11px] font-bold text-blue-400">{t.allies}</span>
+              <div className="w-10 lg:w-28 h-2 bg-stone-800 overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 transition-[width] duration-150"
+                  style={{ width: `${alliesPct}%` }}
+                />
+              </div>
+              <span className="font-mono-nums text-[11px] lg:text-sm font-bold text-stone-100 w-7 text-right">
+                {hud.alliesTickets}
+              </span>
+            </div>
 
-      {/* TOP-RIGHT: Settings, Mute, Pause + Killfeed */}
+            <div className="px-1.5 py-0.5 bg-stone-900 border border-stone-700 font-mono-nums text-[10px] lg:text-[11px] font-bold text-amber-300">
+              {formatClock(hud.timeRemaining)}
+            </div>
+
+            <div className="flex items-center gap-1 lg:gap-1.5">
+              <span className="font-mono-nums text-[11px] lg:text-sm font-bold text-stone-100 w-7 text-left">
+                {hud.axisTickets}
+              </span>
+              <div className="w-10 lg:w-28 h-2 bg-stone-800 overflow-hidden">
+                <div
+                  className="h-full bg-red-500 transition-[width] duration-150 ml-auto"
+                  style={{ width: `${axisPct}%` }}
+                />
+              </div>
+              <span className="text-[10px] lg:text-[11px] font-bold text-red-400">{t.axis}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 lg:gap-1.5">
+            {hud.zones.map((z) => {
+              const bg =
+                z.owner === 'allies'
+                  ? 'bg-blue-600 border-blue-400 text-white'
+                  : z.owner === 'axis'
+                    ? 'bg-red-600 border-red-400 text-white'
+                    : 'bg-stone-900/90 border-stone-500 text-stone-200';
+              return (
+                <div
+                  key={z.id}
+                  className={`w-5 h-5 lg:w-7 lg:h-7 border lg:border-2 flex items-center justify-center font-display font-bold text-[11px] lg:text-sm ${bg}`}
+                >
+                  {z.label}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* TOP-RIGHT: Exit to Menu, Backpack, Layout, Settings, Mute, Pause + Killfeed */}
       <div className="fixed top-2.5 right-2.5 lg:top-4 lg:right-4 flex flex-col items-end gap-1.5">
         <div className="flex items-center gap-1 pointer-events-auto">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={t.exitBattleBtn}
+            title={t.exitBattleBtn}
+            data-testid="hud-btn-exit"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              e.currentTarget.blur();
+              onExitToMenu();
+            }}
+            className="h-8 lg:h-10 px-2 lg:px-2.5 flex items-center justify-center gap-1 bg-red-950/90 border border-red-500/70 text-red-100 hover:bg-red-900 cursor-pointer text-[10px] lg:text-xs font-bold"
+          >
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">{t.exitBattleBtn}</span>
+          </button>
           <button
             type="button"
             tabIndex={-1}
@@ -662,6 +740,7 @@ export function GameHud({
             type="button"
             tabIndex={-1}
             aria-label={t.pause}
+            data-testid="hud-btn-pause"
             onPointerDown={(e) => {
               e.stopPropagation();
               e.currentTarget.blur();
@@ -694,7 +773,8 @@ export function GameHud({
       </div>
 
       {/* CENTER HIP CROSSHAIR */}
-      {!hud.isAds &&
+      {!isCombatHidden &&
+        !hud.isAds &&
         !hud.isBinocularsActive &&
         hud.weaponId !== 'shovel' &&
         hud.gameMode !== 'hardcore' &&
@@ -837,23 +917,25 @@ export function GameHud({
         </div>
       )}
 
-      {hud.health > 0 && hud.inVehicleKind === 'aircraft' && hud.aircraftThreatWarning !== 'none' && (
-        <div
-          data-testid="aircraft-threat-warning"
-          dir={lang === 'ar' ? 'rtl' : 'ltr'}
-          className={`fixed top-16 md:top-20 left-1/2 -translate-x-1/2 px-3 py-1 border text-[11px] md:text-xs font-bold whitespace-nowrap shadow-lg animate-pulse ${
-            hud.aircraftThreatWarning === 'pull_up'
-              ? 'bg-amber-950/95 border-amber-400 text-amber-200'
-              : 'bg-red-950/95 border-red-400 text-red-100'
-          }`}
-        >
-          {hud.aircraftThreatWarning === 'eject'
-            ? t.threatEject
-            : hud.aircraftThreatWarning === 'missile'
-              ? t.threatMissile
-              : t.threatPullUp}
-        </div>
-      )}
+      {hud.health > 0 &&
+        (hud.inVehicleKind === 'aircraft' || hud.inVehicleKind === 'helicopter') &&
+        hud.aircraftThreatWarning !== 'none' && (
+          <div
+            data-testid="aircraft-threat-warning"
+            dir={lang === 'ar' ? 'rtl' : 'ltr'}
+            className={`fixed top-16 md:top-20 left-1/2 -translate-x-1/2 px-3 py-1 border text-[11px] md:text-xs font-bold whitespace-nowrap shadow-lg animate-pulse ${
+              hud.aircraftThreatWarning === 'pull_up'
+                ? 'bg-amber-950/95 border-amber-400 text-amber-200'
+                : 'bg-red-950/95 border-red-400 text-red-100'
+            }`}
+          >
+            {hud.aircraftThreatWarning === 'eject'
+              ? t.threatEject
+              : hud.aircraftThreatWarning === 'missile'
+                ? t.threatMissile
+                : t.threatPullUp}
+          </div>
+        )}
 
       {hud.health > 0 &&
         (hud.inVehicleKind ? (
@@ -894,6 +976,19 @@ export function GameHud({
                   </span>
                 )}
               </span>
+            ) : hud.inVehicleKind === 'helicopter' ? (
+              <span data-testid="helicopter-cockpit-hud" className="flex items-center gap-2 md:gap-2.5">
+                <span className="text-emerald-300">{t.helicopterName}</span>
+                <span dir="ltr" className="font-mono-nums text-sky-300">
+                  COL {hud.aircraftThrottlePct}%
+                </span>
+                <span dir="ltr" className="font-mono-nums text-amber-300">
+                  RKT {hud.aircraftMissiles}/{hud.aircraftMissilesMax}
+                </span>
+                <span dir="ltr" className="font-mono-nums text-orange-400">
+                  FLR {hud.aircraftFlares}/{hud.aircraftFlaresMax}
+                </span>
+              </span>
             ) : (
               <span className="text-amber-300">
                 {hud.inVehicleKind === 'tank' ? t.tankName : t.jeepName}
@@ -905,7 +1000,7 @@ export function GameHud({
             <span dir="ltr" className="font-mono-nums text-stone-300">
               {hud.vehicleSpeedKmh} km/h
             </span>
-            {hud.inVehicleKind === 'aircraft' && (
+            {(hud.inVehicleKind === 'aircraft' || hud.inVehicleKind === 'helicopter') && (
               <span dir="ltr" className="font-mono-nums text-sky-300">
                 ALT {hud.vehicleAltitudeM}m
               </span>
@@ -913,6 +1008,24 @@ export function GameHud({
             <span dir="ltr" className="font-mono-nums text-amber-200">
               {hud.vehicleAmmo}
             </span>
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-btn-cockpit"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.currentTarget.blur();
+                onToggleCockpitCamera();
+              }}
+              className={`pointer-events-auto px-1.5 py-0.5 border text-[10px] flex items-center gap-1 cursor-pointer ${
+                hud.vehicleInteriorCamera
+                  ? 'bg-sky-500 text-stone-950 border-sky-200'
+                  : 'bg-stone-800 text-stone-200 border-stone-600 hover:bg-stone-700'
+              }`}
+            >
+              <Camera className="w-3 h-3" />
+              <span>{t.cockpitCamBtn}</span>
+            </button>
             <span className="text-stone-400">[X]</span>
           </div>
         ) : hud.isParachuting ? (
@@ -932,11 +1045,13 @@ export function GameHud({
             data-testid="hud-enter-vehicle"
             className="fixed top-[68px] lg:top-auto lg:bottom-16 left-1/2 -translate-x-1/2 bg-amber-950/92 border border-amber-400 px-3.5 py-1 text-[11px] font-bold text-amber-200 whitespace-nowrap shadow"
           >
-            {hud.nearbyVehicleKind === 'aircraft'
-              ? t.enterAircraft
-              : hud.nearbyVehicleKind === 'tank'
-                ? t.enterTank
-                : t.enterJeep}
+            {hud.nearbyVehicleKind === 'helicopter'
+              ? t.enterHelicopter
+              : hud.nearbyVehicleKind === 'aircraft'
+                ? t.enterAircraft
+                : hud.nearbyVehicleKind === 'tank'
+                  ? t.enterTank
+                  : t.enterJeep}
           </div>
         ) : hud.nearArmory ? (
           <div
@@ -1058,8 +1173,8 @@ export function GameHud({
         </div>
       </div>
 
-      {/* BOTTOM-RIGHT: Weapon Silhouette, Active Slot, Mag/Reserve & Grenade (hidden while inside a vehicle to keep cockpit clean) */}
-      {!hud.inVehicleKind && (
+      {/* BOTTOM-RIGHT: Weapon Silhouette, Active Slot, Mag/Reserve & Grenade */}
+      {!hud.inVehicleKind && !isNonCombatCampaign && (
         <div className="fixed bottom-3 right-3 md:bottom-4 md:right-4 bg-stone-950/88 border border-stone-700/80 px-3 py-1.5 min-w-[210px] md:min-w-[250px]">
           <div className="flex items-center justify-between gap-2 mb-0.5">
             <WeaponSilhouetteSvg weaponId={hud.weaponId} />
@@ -1123,6 +1238,125 @@ export function GameHud({
               <span dir="ltr" className="font-mono-nums text-amber-400">
                 [G] {t.grenade} {hud.grenades}
               </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STORY CAMPAIGN: TIMED SUBTITLES */}
+      {campaign?.subtitle && !campaign.showLetterOverlay && !campaign.missionComplete && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          data-testid="campaign-subtitle"
+          className="fixed bottom-16 lg:bottom-20 left-1/2 -translate-x-1/2 w-[90vw] max-w-xl bg-stone-950/92 border border-stone-600/80 px-4 py-2.5 text-center shadow-2xl"
+        >
+          <div className="text-[11px] font-bold text-amber-400 mb-0.5">
+            {lang === 'ar' ? campaign.subtitle.speakerNameAr : campaign.subtitle.speakerNameEn}
+          </div>
+          <div className="text-xs sm:text-sm text-stone-100 leading-relaxed">
+            {lang === 'ar' ? campaign.subtitle.textAr : campaign.subtitle.textEn}
+          </div>
+        </div>
+      )}
+
+      {/* STORY CAMPAIGN: CONSCRIPTION LETTER MODAL (MISSION 1) */}
+      {campaign?.showLetterOverlay && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          data-testid="campaign-letter-modal"
+          className="fixed inset-0 z-30 flex items-center justify-center p-4 bg-stone-950/88 pointer-events-auto"
+        >
+          <div className="max-w-lg w-full bg-stone-100 text-stone-900 border-4 border-stone-800 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b-2 border-stone-400 pb-2 text-[11px] font-mono-nums font-bold text-stone-700">
+              <span>{RECRUITMENT_LETTER_DATA.refNumber}</span>
+              <span>
+                {lang === 'ar'
+                  ? RECRUITMENT_LETTER_DATA.issueDateAr
+                  : RECRUITMENT_LETTER_DATA.issueDateEn}
+              </span>
+            </div>
+            <div className="text-xs font-extrabold tracking-wider uppercase text-emerald-900">
+              {lang === 'ar'
+                ? RECRUITMENT_LETTER_DATA.emblemLabelAr
+                : RECRUITMENT_LETTER_DATA.emblemLabelEn}
+            </div>
+            <div className="px-3 py-2 bg-stone-200/80 border border-stone-400 text-xs font-bold">
+              {lang === 'ar'
+                ? RECRUITMENT_LETTER_DATA.recipientAr
+                : RECRUITMENT_LETTER_DATA.recipientEn}
+            </div>
+            <p className="text-sm leading-relaxed text-stone-800">
+              {lang === 'ar' ? RECRUITMENT_LETTER_DATA.bodyAr : RECRUITMENT_LETTER_DATA.bodyEn}
+            </p>
+            <button
+              type="button"
+              data-testid="btn-letter-report"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onDismissCampaignLetter();
+              }}
+              className="w-full h-11 bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-sm tracking-wide cursor-pointer"
+            >
+              {lang === 'ar' ? RECRUITMENT_LETTER_DATA.ctaAr : RECRUITMENT_LETTER_DATA.ctaEn}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STORY CAMPAIGN: TIME-LAPSE INTERLUDE */}
+      {(campaign?.timeLapseTextEn || campaign?.timeLapseTextAr) && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          data-testid="campaign-timelapse"
+          className="fixed inset-0 z-30 flex items-center justify-center p-6 bg-stone-950/94"
+        >
+          <div className="text-center space-y-2 max-w-xl">
+            <div className="text-xs uppercase tracking-[0.25em] text-amber-400 font-bold">
+              M{campaign?.missionId}
+            </div>
+            <div className="font-display text-2xl sm:text-3xl font-extrabold text-stone-100">
+              {lang === 'ar' ? campaign?.timeLapseTextAr : campaign?.timeLapseTextEn}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STORY CAMPAIGN: MISSION COMPLETE BANNER */}
+      {campaign?.missionComplete && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          data-testid="campaign-mission-complete"
+          className="fixed inset-0 z-30 flex items-center justify-center p-4 bg-stone-950/84 pointer-events-auto"
+        >
+          <div className="max-w-md w-full bg-stone-900 border border-emerald-500/70 p-6 shadow-2xl space-y-4 text-center">
+            <div className="text-xs font-bold tracking-widest text-emerald-400 uppercase">
+              {t.missionCompleteBanner}
+            </div>
+            <h2 className="font-display text-3xl font-extrabold text-stone-100">
+              M{campaign.missionId} · {lang === 'ar' ? campaign.titleAr : campaign.titleEn}
+            </h2>
+            <p className="text-xs text-stone-300">
+              {lang === 'ar' ? campaign.objectiveAr : campaign.objectiveEn}
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              {campaign.missionId < 20 && (
+                <button
+                  type="button"
+                  data-testid="btn-next-mission"
+                  onClick={onNextCampaignMission}
+                  className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-display text-lg font-bold cursor-pointer"
+                >
+                  {t.nextMissionBtn} (M{campaign.missionId + 1})
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="btn-mission-exit"
+                onClick={onExitToMenu}
+                className="w-full h-10 bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-semibold border border-stone-600 cursor-pointer"
+              >
+                {t.exitBattleBtn}
+              </button>
             </div>
           </div>
         </div>

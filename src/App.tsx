@@ -15,6 +15,12 @@ import {
   saveCareerProgress,
   saveWeaponCustomizations,
 } from './game/attachments';
+import {
+  type CampaignSaveProgress,
+  loadCampaignSave,
+  markCampaignMissionComplete,
+  resetCampaignSave,
+} from './game/campaignSave';
 import { PolyfieldEngine } from './game/engine';
 import { STRINGS } from './game/i18n';
 import {
@@ -33,7 +39,6 @@ import type {
   KeyAction,
   Lang,
   MapId,
-  Team,
   WeaponCustomizationsMap,
   WeaponId,
 } from './game/types';
@@ -44,10 +49,6 @@ const INITIAL_HUD: HudSnapshot = {
   gameMode: 'conquest',
   loadoutId: 'rifleman',
   playerTeam: 'allies',
-  isOnline: false,
-  onlineStatus: 'offline',
-  onlineRoomCode: 'FRONTLINE',
-  onlinePlayerCount: 0,
   health: 100,
   maxHealth: 100,
   stamina: 100,
@@ -133,6 +134,11 @@ const INITIAL_HUD: HudSnapshot = {
   parachuteAltitudeM: 0,
   backpackMedkits: 2,
   backpackMedkitsMax: 2,
+  vehicleInteriorCamera: false,
+  matchDurationSeconds: MATCH_DURATION_SECONDS,
+  mudLevel: 0,
+  resolvedGraphicsQuality: 'medium',
+  resolvedTargetFps: 60,
 };
 
 export default function App() {
@@ -149,13 +155,14 @@ export default function App() {
     loadWeaponCustomizations(),
   );
   const [career, setCareer] = useState<CareerProgress>(() => loadCareerProgress());
+  const [campaignProgress, setCampaignProgress] = useState<CampaignSaveProgress>(() =>
+    loadCampaignSave(),
+  );
+  const [matchDurationSeconds, setMatchDurationSeconds] = useState<number>(MATCH_DURATION_SECONDS);
   const openedEditorFromPlayRef = useRef(false);
+  const lastCompletedMissionRef = useRef<number | null>(null);
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const [dismissedPortrait, setDismissedPortrait] = useState(false);
-  const [isOnline, setIsOnline] = useState(false);
-  const [roomCode, setRoomCode] = useState('FRONTLINE');
-  const [callsign, setCallsign] = useState('Soldier');
-  const [preferredTeam, setPreferredTeam] = useState<Team | null>(null);
 
   // Detect portrait mobile orientation to encourage landscape play
   useEffect(() => {
@@ -172,6 +179,17 @@ export default function App() {
       window.removeEventListener('orientationchange', checkOrientation);
     };
   }, []);
+
+  // Auto-save campaign progression when a mission reaches completion
+  useEffect(() => {
+    const c = hud.campaign;
+    if (c?.active && c.missionComplete && lastCompletedMissionRef.current !== c.missionId) {
+      lastCompletedMissionRef.current = c.missionId;
+      setCampaignProgress((prev) => markCampaignMissionComplete(prev, c.missionId));
+    } else if (!c?.missionComplete) {
+      lastCompletedMissionRef.current = null;
+    }
+  }, [hud.campaign?.active, hud.campaign?.missionComplete, hud.campaign?.missionId]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -215,20 +233,24 @@ export default function App() {
     if (slot2Param && SLOT2_WEAPON_IDS.includes(slot2Param)) {
       engine.setSlot2Weapon(slot2Param);
     }
-    const roomParam = params.get('room');
-    const onlineParam = params.get('online');
-    if (roomParam || onlineParam === '1') {
-      const cleanRoom =
-        (roomParam ?? 'FRONTLINE').toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 14) ||
-        'FRONTLINE';
-      setIsOnline(true);
-      setRoomCode(cleanRoom);
-      engine.setOnlineConfig(true, cleanRoom, 'Soldier', null);
+    const durParam = Number(params.get('duration'));
+    if (Number.isFinite(durParam) && durParam >= 120 && durParam <= 1800) {
+      setMatchDurationSeconds(durParam);
+      engine.setMatchDuration(durParam);
     }
-    if (params.get('autostart') === '1') {
+
+    const missionParam = Number(params.get('mission'));
+    if (Number.isInteger(missionParam) && missionParam >= 1 && missionParam <= 20) {
+      engine.startCampaignMission(missionParam);
+    } else if (params.get('autostart') === '1') {
       engine.startGame();
       const boardParam = params.get('board');
-      if (boardParam === 'aircraft' || boardParam === 'jeep' || boardParam === 'tank') {
+      if (
+        boardParam === 'aircraft' ||
+        boardParam === 'helicopter' ||
+        boardParam === 'jeep' ||
+        boardParam === 'tank'
+      ) {
         engine.boardTeamVehicle(boardParam);
       }
     }
@@ -343,7 +365,6 @@ export default function App() {
   };
 
   const handleStart = () => {
-    // Attempt non-blocking landscape lock on mobile when starting match
     try {
       const orientation = screen.orientation as { lock?: (mode: string) => Promise<void> } | undefined;
       void orientation?.lock?.('landscape')?.catch(() => {});
@@ -351,6 +372,20 @@ export default function App() {
       // ignore
     }
     engineRef.current?.startGame();
+  };
+
+  const handleStartCampaignMission = (missionId: number) => {
+    lastCompletedMissionRef.current = null;
+    engineRef.current?.startCampaignMission(missionId);
+  };
+
+  const handleResetCampaign = () => {
+    setCampaignProgress(resetCampaignSave());
+  };
+
+  const handleSelectMatchDuration = (seconds: number) => {
+    setMatchDurationSeconds(seconds);
+    engineRef.current?.setMatchDuration(seconds);
   };
 
   const handleOpenBackpack = () => {
@@ -370,6 +405,13 @@ export default function App() {
   const handlePause = () => engineRef.current?.pauseGame();
   const handleResume = () => engineRef.current?.resumeGame();
   const handleTitle = () => engineRef.current?.returnToTitle();
+  const handleRestartMatch = () => {
+    if (hud.campaign?.active) {
+      handleStartCampaignMission(hud.campaign.missionId);
+    } else {
+      handleStart();
+    }
+  };
   const handleVirtualAction = (action: KeyAction, active: boolean) =>
     engineRef.current?.setVirtualAction(action, active);
   const handleVirtualMove = (mx: number, my: number) =>
@@ -380,19 +422,17 @@ export default function App() {
   const handleDropBomb = () => engineRef.current?.dropAircraftBomb();
   const handleFireMissile = () => engineRef.current?.fireAircraftMissile();
   const handleDeployFlares = () => engineRef.current?.deployAircraftFlares();
+  const handleToggleCockpitCamera = () => engineRef.current?.toggleVehicleInteriorCamera();
+  const handleDismissCampaignLetter = () => engineRef.current?.dismissCampaignLetter();
+  const handleSkipCampaignCutscene = () => engineRef.current?.skipCampaignCutscene();
+  const handleNextCampaignMission = () => {
+    const cur = hud.campaign?.missionId ?? 1;
+    if (cur < 20) handleStartCampaignMission(cur + 1);
+  };
   const handleSelectSlot = (slot: 1 | 2 | 3 | 4 | 5) => {
     const act: KeyAction = `slot${slot}` as KeyAction;
     engineRef.current?.setVirtualAction(act, true);
     window.setTimeout(() => engineRef.current?.setVirtualAction(act, false), 45);
-  };
-
-  const syncOnlineConfig = (
-    nextOnline: boolean,
-    nextRoom: string,
-    nextCallsign: string,
-    nextTeam: Team | null,
-  ) => {
-    engineRef.current?.setOnlineConfig(nextOnline, nextRoom, nextCallsign, nextTeam);
   };
 
   const t = STRINGS[lang];
@@ -413,10 +453,8 @@ export default function App() {
           slot1Id={hud.slot1Id}
           slot2Id={hud.slot2Id}
           muted={hud.muted}
-          isOnline={isOnline}
-          roomCode={roomCode}
-          callsign={callsign}
-          preferredTeam={preferredTeam}
+          matchDurationSeconds={matchDurationSeconds}
+          campaignProgress={campaignProgress}
           onToggleLang={() => setLang((prev) => (prev === 'ar' ? 'en' : 'ar'))}
           onToggleMute={handleToggleMute}
           onOpenSettings={handleOpenSettings}
@@ -428,23 +466,10 @@ export default function App() {
           onSelectGameMode={handleSelectGameMode}
           onSelectSlot1={handleSelectSlot1}
           onSelectSlot2={handleSelectSlot2}
-          onChangeOnline={(enabled) => {
-            setIsOnline(enabled);
-            syncOnlineConfig(enabled, roomCode, callsign, preferredTeam);
-          }}
-          onChangeRoomCode={(code) => {
-            setRoomCode(code);
-            syncOnlineConfig(isOnline, code, callsign, preferredTeam);
-          }}
-          onChangeCallsign={(name) => {
-            setCallsign(name);
-            syncOnlineConfig(isOnline, roomCode, name, preferredTeam);
-          }}
-          onChangePreferredTeam={(tm) => {
-            setPreferredTeam(tm);
-            syncOnlineConfig(isOnline, roomCode, callsign, tm);
-          }}
+          onSelectMatchDuration={handleSelectMatchDuration}
           onStart={handleStart}
+          onStartCampaignMission={handleStartCampaignMission}
+          onResetCampaign={handleResetCampaign}
         />
       )}
 
@@ -455,9 +480,14 @@ export default function App() {
             lang={lang}
             onToggleMute={handleToggleMute}
             onPause={handlePause}
+            onExitToMenu={handleTitle}
             onOpenSettings={handleOpenSettings}
             onOpenHudEditor={handleOpenHudEditor}
             onOpenBackpack={handleOpenBackpack}
+            onToggleCockpitCamera={handleToggleCockpitCamera}
+            onDismissCampaignLetter={handleDismissCampaignLetter}
+            onSkipCampaignCutscene={handleSkipCampaignCutscene}
+            onNextCampaignMission={handleNextCampaignMission}
           />
           {hud.health > 0 && settings.showOnScreenControls && (
             <OnScreenControls
@@ -472,6 +502,7 @@ export default function App() {
               onDropBomb={handleDropBomb}
               onFireMissile={handleFireMissile}
               onDeployFlares={handleDeployFlares}
+              onToggleCockpitCamera={handleToggleCockpitCamera}
             />
           )}
         </>
@@ -485,7 +516,7 @@ export default function App() {
             hud={hud}
             lang={lang}
             onResume={handleResume}
-            onRestart={handleStart}
+            onRestart={handleRestartMatch}
             onTitle={handleTitle}
             onOpenSettings={handleOpenSettings}
           />
@@ -495,6 +526,8 @@ export default function App() {
         <SettingsModal
           lang={lang}
           settings={settings}
+          resolvedGraphicsQuality={hud.resolvedGraphicsQuality}
+          resolvedTargetFps={hud.resolvedTargetFps}
           onChange={handleSettingsChange}
           onOpenHudEditor={handleOpenHudEditor}
           onClose={() => setSettingsOpen(false)}

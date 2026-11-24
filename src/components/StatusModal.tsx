@@ -22,6 +22,7 @@ export function StatusModal({
   const t = STRINGS[lang];
   const isRtl = lang === 'ar';
   const isPaused = hud.phase === 'paused';
+  const isCampaign = Boolean(hud.campaign?.active);
   const accuracy =
     hud.shotsFired > 0 ? Math.round((hud.shotsHit / hud.shotsFired) * 100) : 0;
 
@@ -51,7 +52,9 @@ export function StatusModal({
           {headline}
         </h2>
         <p className="text-xs text-stone-400 mb-5">
-          {t.allies} {hud.alliesTickets} · {t.axis} {hud.axisTickets}
+          {isCampaign && hud.campaign
+            ? `M${hud.campaign.missionId} · ${lang === 'ar' ? hud.campaign.titleAr : hud.campaign.titleEn}`
+            : `${t.allies} ${hud.alliesTickets} · ${t.axis} ${hud.axisTickets}`}
         </p>
 
         {/* Tabular-Nums Match Stats */}
@@ -111,10 +114,11 @@ export function StatusModal({
           </button>
           <button
             type="button"
+            data-testid="modal-btn-exit"
             onClick={onTitle}
-            className="w-full h-10 bg-stone-950 hover:bg-stone-800 text-stone-300 text-sm font-semibold border border-stone-700 cursor-pointer"
+            className="w-full h-10 bg-red-950/85 hover:bg-red-900/90 text-red-100 text-sm font-bold border border-red-600/70 cursor-pointer"
           >
-            {t.mainMenu}
+            {t.exitBattleBtn}
           </button>
         </div>
       </div>

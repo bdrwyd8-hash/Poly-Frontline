@@ -2037,7 +2037,7 @@ export class PolyfieldEngine {
         const cz =
           spec.mode === 'letter_intro'
             ? 12.5 + idx * 1.4
-            : spec.mode === 'alarm_crater' || spec.mode === 'blast_alarm'
+            : spec.mode === 'blast_alarm'
               ? -12 + idx * 1.6
               : this.playerZ - 5.5 - idx * 1.8;
         const cy = groundHeightAt(cx, cz, this.mapId);
@@ -7603,43 +7603,142 @@ export class PolyfieldEngine {
     const shakePitch = (Math.random() - 0.5) * 0.028 * shake;
     const shakeYaw = (Math.random() - 0.5) * 0.028 * shake;
 
-    if (this.activeAircraft) {
-      const ac = this.activeAircraft;
-      const fwdX = Math.sin(ac.yaw);
-      const fwdZ = Math.cos(ac.yaw);
-      const desiredCamX = ac.x - fwdX * 14.5;
-      const desiredCamZ = ac.z - fwdZ * 14.5;
-      const desiredCamY = Math.max(
-        groundHeightAt(desiredCamX, desiredCamZ, this.mapId) + 1.6,
-        ac.y + 4.1 - Math.sin(ac.pitch) * 6.5,
+    if (
+      this.campaignMode &&
+      this.campaignMission?.mode === 'truck_passenger_convoy' &&
+      this.campaignSet?.truckRig
+    ) {
+      this.campaignSet.truckRig.passengerAnchor.getWorldPosition(_v1);
+      const roadJitter = Math.sin(this.campaignElapsed * 14.5) * 0.012;
+      this.camera.position.set(_v1.x, _v1.y + roadJitter, _v1.z);
+      this.camera.rotation.set(
+        THREE.MathUtils.clamp(this.playerPitch + shakePitch * 0.25, -0.55, 0.55),
+        THREE.MathUtils.clamp(this.playerYaw + shakeYaw * 0.25, -1.25, 1.25),
+        Math.sin(this.campaignElapsed * 7.2) * 0.008,
+        'YXZ',
       );
-      const lookX = ac.x + fwdX * 19;
-      const lookY = ac.y + Math.sin(ac.pitch) * 14;
-      const lookZ = ac.z + fwdZ * 19;
+      this.cameraSnapPending = false;
+      this.weaponHolder.visible = false;
+      this.worldFlashlight.visible = false;
+      this.digPreviewMesh.visible = false;
+      if (Math.abs(this.camera.fov - this.settings.fov) > 0.1) {
+        this.camera.fov = this.settings.fov;
+        this.camera.updateProjectionMatrix();
+        this.fpCamera.fov = this.settings.fov;
+        this.fpCamera.updateProjectionMatrix();
+      }
+      return;
+    }
 
-      const rightX = Math.cos(ac.yaw);
-      const rightZ = -Math.sin(ac.yaw);
-      const rollAngle = ac.bankRoll * 0.34;
-      _v5.set(-rightX * Math.sin(rollAngle), Math.cos(rollAngle), -rightZ * Math.sin(rollAngle)).normalize();
-
-      if (this.cameraSnapPending) {
-        this.camera.position.set(desiredCamX, desiredCamY, desiredCamZ);
-        this.camLookTarget.set(lookX, lookY, lookZ);
-        this.camera.up.copy(_v5);
+    if (this.activeHelicopter) {
+      const h = this.activeHelicopter;
+      h.rig.pilotMesh.visible = !this.vehicleInteriorCamera;
+      if (this.vehicleInteriorCamera) {
+        h.rig.cockpitAnchor.getWorldPosition(_v1);
+        this.camera.position.copy(_v1);
+        this.camera.rotation.set(
+          THREE.MathUtils.clamp(this.playerPitch + shakePitch, -0.75, 0.55),
+          this.playerYaw + shakeYaw,
+          -h.flight.roll * 0.35,
+          'YXZ',
+        );
         this.cameraSnapPending = false;
       } else {
-        this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, desiredCamX, 10.5, dt);
-        this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, desiredCamY, 10.5, dt);
-        this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, desiredCamZ, 10.5, dt);
-        this.camLookTarget.x = THREE.MathUtils.damp(this.camLookTarget.x, lookX, 12.5, dt);
-        this.camLookTarget.y = THREE.MathUtils.damp(this.camLookTarget.y, lookY, 12.5, dt);
-        this.camLookTarget.z = THREE.MathUtils.damp(this.camLookTarget.z, lookZ, 12.5, dt);
-        this.camera.up.x = THREE.MathUtils.damp(this.camera.up.x, _v5.x, 8.5, dt);
-        this.camera.up.y = THREE.MathUtils.damp(this.camera.up.y, _v5.y, 8.5, dt);
-        this.camera.up.z = THREE.MathUtils.damp(this.camera.up.z, _v5.z, 8.5, dt);
-        this.camera.up.normalize();
+        const camDist = 12.0;
+        const camHeight = 3.9;
+        const fwdX = -Math.sin(this.playerYaw);
+        const fwdZ = -Math.cos(this.playerYaw);
+        const desiredCamX = h.flight.x - fwdX * camDist;
+        const desiredCamZ = h.flight.z - fwdZ * camDist;
+        const desiredCamY = Math.max(
+          groundHeightAt(desiredCamX, desiredCamZ, this.mapId) + 1.4,
+          h.flight.y + camHeight - Math.sin(this.playerPitch) * 3.6,
+        );
+        if (this.cameraSnapPending) {
+          this.camera.position.set(desiredCamX, desiredCamY, desiredCamZ);
+          this.cameraSnapPending = false;
+        } else {
+          this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, desiredCamX, 11.0, dt);
+          this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, desiredCamY, 11.0, dt);
+          this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, desiredCamZ, 11.0, dt);
+        }
+        this.camera.rotation.set(
+          THREE.MathUtils.clamp(this.playerPitch + shakePitch, -0.78, 0.55),
+          this.playerYaw + shakeYaw,
+          0,
+          'YXZ',
+        );
       }
-      this.camera.lookAt(this.camLookTarget);
+      this.weaponHolder.visible = false;
+      this.worldFlashlight.visible = false;
+      this.digPreviewMesh.visible = false;
+      if (Math.abs(this.camera.fov - this.settings.fov) > 0.1) {
+        this.camera.fov = this.settings.fov;
+        this.camera.updateProjectionMatrix();
+        this.fpCamera.fov = this.settings.fov;
+        this.fpCamera.updateProjectionMatrix();
+      }
+      return;
+    }
+
+    if (this.activeAircraft) {
+      const ac = this.activeAircraft;
+      ac.rig.pilotMesh.visible = !this.vehicleInteriorCamera;
+      if (this.vehicleInteriorCamera) {
+        ac.rig.cockpitAnchor.getWorldPosition(_v1);
+        const fwdX = Math.sin(ac.yaw) * Math.cos(ac.pitch);
+        const fwdY = Math.sin(ac.pitch);
+        const fwdZ = Math.cos(ac.yaw) * Math.cos(ac.pitch);
+        const rightX = Math.cos(ac.yaw);
+        const rightZ = -Math.sin(ac.yaw);
+        const rollAngle = ac.bankRoll * 0.85;
+        _v5
+          .set(-rightX * Math.sin(rollAngle), Math.cos(rollAngle), -rightZ * Math.sin(rollAngle))
+          .normalize();
+        this.camera.position.copy(_v1);
+        this.camLookTarget.set(_v1.x + fwdX * 45, _v1.y + fwdY * 45, _v1.z + fwdZ * 45);
+        this.camera.up.copy(_v5);
+        this.camera.lookAt(this.camLookTarget);
+        this.cameraSnapPending = false;
+      } else {
+        const fwdX = Math.sin(ac.yaw);
+        const fwdZ = Math.cos(ac.yaw);
+        const desiredCamX = ac.x - fwdX * 14.5;
+        const desiredCamZ = ac.z - fwdZ * 14.5;
+        const desiredCamY = Math.max(
+          groundHeightAt(desiredCamX, desiredCamZ, this.mapId) + 1.6,
+          ac.y + 4.1 - Math.sin(ac.pitch) * 6.5,
+        );
+        const lookX = ac.x + fwdX * 19;
+        const lookY = ac.y + Math.sin(ac.pitch) * 14;
+        const lookZ = ac.z + fwdZ * 19;
+
+        const rightX = Math.cos(ac.yaw);
+        const rightZ = -Math.sin(ac.yaw);
+        const rollAngle = ac.bankRoll * 0.34;
+        _v5
+          .set(-rightX * Math.sin(rollAngle), Math.cos(rollAngle), -rightZ * Math.sin(rollAngle))
+          .normalize();
+
+        if (this.cameraSnapPending) {
+          this.camera.position.set(desiredCamX, desiredCamY, desiredCamZ);
+          this.camLookTarget.set(lookX, lookY, lookZ);
+          this.camera.up.copy(_v5);
+          this.cameraSnapPending = false;
+        } else {
+          this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, desiredCamX, 10.5, dt);
+          this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, desiredCamY, 10.5, dt);
+          this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, desiredCamZ, 10.5, dt);
+          this.camLookTarget.x = THREE.MathUtils.damp(this.camLookTarget.x, lookX, 12.5, dt);
+          this.camLookTarget.y = THREE.MathUtils.damp(this.camLookTarget.y, lookY, 12.5, dt);
+          this.camLookTarget.z = THREE.MathUtils.damp(this.camLookTarget.z, lookZ, 12.5, dt);
+          this.camera.up.x = THREE.MathUtils.damp(this.camera.up.x, _v5.x, 8.5, dt);
+          this.camera.up.y = THREE.MathUtils.damp(this.camera.up.y, _v5.y, 8.5, dt);
+          this.camera.up.z = THREE.MathUtils.damp(this.camera.up.z, _v5.z, 8.5, dt);
+          this.camera.up.normalize();
+        }
+        this.camera.lookAt(this.camLookTarget);
+      }
       this.weaponHolder.visible = false;
       this.worldFlashlight.visible = false;
       this.digPreviewMesh.visible = false;
@@ -7655,32 +7754,39 @@ export class PolyfieldEngine {
 
     if (this.activeVehicle) {
       const v = this.activeVehicle;
-      const camDist = v.kind === 'tank' ? 7.6 : 5.8;
-      const camHeight = v.kind === 'tank' ? 3.55 : 2.95;
-      const fwdX = -Math.sin(this.playerYaw);
-      const fwdZ = -Math.cos(this.playerYaw);
-      const desiredX = v.x - fwdX * camDist;
-      const desiredZ = v.z - fwdZ * camDist;
-      const safeCamPos = resolveCircleObstacles(
-        desiredX,
-        desiredZ,
-        0.5,
-        this.world!.obstacles,
-        ARENA_RADIUS,
-      );
-      const groundUnderCam = groundHeightAt(safeCamPos.x, safeCamPos.z, this.mapId);
-      const camY = Math.max(groundUnderCam + 1.15, v.y + camHeight - Math.sin(this.playerPitch) * 2.1);
-
-      if (this.cameraSnapPending) {
-        this.camera.position.set(safeCamPos.x, camY, safeCamPos.z);
+      v.rig.driverMesh.visible = !this.vehicleInteriorCamera;
+      if (this.vehicleInteriorCamera) {
+        v.rig.cockpitAnchor.getWorldPosition(_v1);
+        this.camera.position.copy(_v1);
         this.cameraSnapPending = false;
       } else {
-        this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, safeCamPos.x, 12.5, dt);
-        this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, camY, 12.5, dt);
-        this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, safeCamPos.z, 12.5, dt);
+        const camDist = v.kind === 'tank' ? 7.6 : 5.8;
+        const camHeight = v.kind === 'tank' ? 3.55 : 2.95;
+        const fwdX = -Math.sin(this.playerYaw);
+        const fwdZ = -Math.cos(this.playerYaw);
+        const desiredX = v.x - fwdX * camDist;
+        const desiredZ = v.z - fwdZ * camDist;
+        const safeCamPos = resolveCircleObstacles(
+          desiredX,
+          desiredZ,
+          0.5,
+          this.world!.obstacles,
+          ARENA_RADIUS,
+        );
+        const groundUnderCam = groundHeightAt(safeCamPos.x, safeCamPos.z, this.mapId);
+        const camY = Math.max(groundUnderCam + 1.15, v.y + camHeight - Math.sin(this.playerPitch) * 2.1);
+
+        if (this.cameraSnapPending) {
+          this.camera.position.set(safeCamPos.x, camY, safeCamPos.z);
+          this.cameraSnapPending = false;
+        } else {
+          this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, safeCamPos.x, 12.5, dt);
+          this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, camY, 12.5, dt);
+          this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, safeCamPos.z, 12.5, dt);
+        }
       }
       this.camera.rotation.set(
-        THREE.MathUtils.clamp(this.playerPitch * 0.85 + shakePitch, -0.42, 0.55),
+        THREE.MathUtils.clamp(this.playerPitch * 0.85 + shakePitch, -0.45, 0.55),
         this.playerYaw + shakeYaw,
         0,
         'YXZ',
@@ -7766,8 +7872,17 @@ export class PolyfieldEngine {
       this.activeSlot <= 3 &&
       this.adsBlend > 0.55 &&
       ['optic_2x', 'optic_3x', 'scope_4x', 'scope_6x', 'scope_8x'].includes(effWeapon.loadout.optic);
+    const isUnarmedCampaign =
+      this.campaignMode &&
+      (this.campaignMission?.mode === 'letter_intro' ||
+        this.campaignMission?.mode === 'base_walk' ||
+        this.campaignMission?.mode === 'blast_alarm' ||
+        this.campaignMission?.mode === 'truck_passenger_convoy');
     this.weaponHolder.visible =
-      this.phase === 'playing' && !this.isBinocularsZoomed && !using2dScopeOverlay;
+      this.phase === 'playing' &&
+      !isUnarmedCampaign &&
+      !this.isBinocularsZoomed &&
+      !using2dScopeOverlay;
     this.worldFlashlight.visible =
       this.phase === 'playing' &&
       this.activeSlot <= 3 &&
@@ -7806,6 +7921,26 @@ export class PolyfieldEngine {
         const dx = ac.x - this.playerX;
         const dz = ac.z - this.playerZ;
         const d = Math.hypot(dx, dz) - 3.2;
+        if (d < nearestObsDist && (dx * _v1.x + dz * _v1.z) > 0) {
+          nearestObsDist = Math.max(0.25, d);
+        }
+      }
+      for (let i = 0; i < this.helicopters.length; i++) {
+        const h = this.helicopters[i];
+        if (!h.alive || h.flight.y - groundHeightAt(h.flight.x, h.flight.z, this.mapId) >= 4.5) continue;
+        const dx = h.flight.x - this.playerX;
+        const dz = h.flight.z - this.playerZ;
+        const d = Math.hypot(dx, dz) - 3.4;
+        if (d < nearestObsDist && (dx * _v1.x + dz * _v1.z) > 0) {
+          nearestObsDist = Math.max(0.25, d);
+        }
+      }
+      for (let i = 0; i < this.helicopters.length; i++) {
+        const h = this.helicopters[i];
+        if (!h.alive || h.flight.y - groundHeightAt(h.flight.x, h.flight.z, this.mapId) >= 4.5) continue;
+        const dx = h.flight.x - this.playerX;
+        const dz = h.flight.z - this.playerZ;
+        const d = Math.hypot(dx, dz) - 3.4;
         if (d < nearestObsDist && (dx * _v1.x + dz * _v1.z) > 0) {
           nearestObsDist = Math.max(0.25, d);
         }
@@ -8194,7 +8329,7 @@ export class PolyfieldEngine {
   private emitHud(): void {
     const activeWId = this.getActiveWeaponId();
     const eff = this.getEffectiveWeapon(activeWId);
-    const spec = eff.spec;
+    const wpnSpec = eff.spec;
     const ammo =
       this.activeSlot <= 3
         ? this.slotAmmo[this.activeSlot as 1 | 2 | 3]
@@ -8226,12 +8361,6 @@ export class PolyfieldEngine {
         minimapActors.push({ x: b.x, z: b.z, team: b.team });
       }
     }
-    for (const entry of this.remotePlayers.values()) {
-      if (!entry.snap.alive) continue;
-      if (entry.snap.team === this.playerTeam || this.gameMode !== 'hardcore') {
-        minimapActors.push({ x: entry.snap.x, z: entry.snap.z, team: entry.snap.team });
-      }
-    }
     for (let i = 0; i < this.groundVehicles.length; i++) {
       const v = this.groundVehicles[i];
       if (!v.alive) continue;
@@ -8241,6 +8370,11 @@ export class PolyfieldEngine {
       const a = this.aircrafts[i];
       if (!a.alive) continue;
       minimapActors.push({ x: a.x, z: a.z, team: a.team, vehicleKind: 'aircraft' });
+    }
+    for (let i = 0; i < this.helicopters.length; i++) {
+      const h = this.helicopters[i];
+      if (!h.alive) continue;
+      minimapActors.push({ x: h.flight.x, z: h.flight.z, team: h.team, vehicleKind: 'helicopter' });
     }
 
     const speedNow = Math.hypot(this.playerVx, this.playerVz);
@@ -8263,8 +8397,48 @@ export class PolyfieldEngine {
 
     const maxTix = this.gameMode === 'tdm' ? TDM_MAX_TICKETS : MAX_TICKETS;
     const inAircraft = this.activeAircraft;
+    const inHeli = this.activeHelicopter;
     const inGroundVeh = this.activeVehicle;
     const terrainUnderAc = inAircraft ? groundHeightAt(inAircraft.x, inAircraft.z, this.mapId) : 0;
+    const terrainUnderHeli = inHeli ? groundHeightAt(inHeli.flight.x, inHeli.flight.z, this.mapId) : 0;
+    const inAnyAir = Boolean(inAircraft || inHeli);
+    const inAnyVehicle = Boolean(inAircraft || inHeli || inGroundVeh);
+
+    const spec = this.campaignMission;
+    const isNonCombatCampaign =
+      this.campaignMode &&
+      Boolean(
+        spec &&
+          (spec.mode === 'letter_intro' ||
+            spec.mode === 'base_walk' ||
+            spec.mode === 'blast_alarm' ||
+            spec.mode === 'truck_passenger_convoy'),
+      );
+
+    const campaignHud: CampaignHudState | undefined =
+      this.campaignMode && spec
+        ? {
+            active: true,
+            missionId: spec.id,
+            actNumber: spec.act,
+            titleEn: spec.titleEn,
+            titleAr: spec.titleAr,
+            objectiveEn: spec.objectiveEn,
+            objectiveAr: spec.objectiveAr,
+            locationEn: spec.locationEn,
+            locationAr: spec.locationAr,
+            showLetterOverlay: this.campaignLetterPending,
+            isCutscene: spec.skippableCutscene && !this.campaignMissionComplete,
+            isNonCombat: isNonCombatCampaign,
+            isPassengerLock: spec.mode === 'truck_passenger_convoy',
+            canSkipCutscene: spec.skippableCutscene && !this.campaignLetterPending && !this.campaignMissionComplete,
+            timeLapseTextEn: this.campaignTimeLapseTextEn,
+            timeLapseTextAr: this.campaignTimeLapseTextAr,
+            subtitle: this.campaignActiveSubtitle,
+            missionComplete: this.campaignMissionComplete,
+            mudLevel: this.playerMudLevel,
+          }
+        : undefined;
 
     this.onHudUpdate({
       phase: this.phase,
@@ -8272,10 +8446,6 @@ export class PolyfieldEngine {
       gameMode: this.gameMode,
       loadoutId: this.loadoutId,
       playerTeam: this.playerTeam,
-      isOnline: this.isOnline,
-      onlineStatus: this.onlineStatus,
-      onlineRoomCode: this.onlineRoomCode,
-      onlinePlayerCount: this.onlinePlayerCount,
       health: Math.round(this.playerHealth),
       maxHealth: this.playerMaxHealth,
       stamina: Math.round(this.playerStamina),
@@ -8291,22 +8461,27 @@ export class PolyfieldEngine {
       activeRail: eff.loadout.rail,
       accessoryActive: this.accessoryActive,
       magAmmo: ammo.mag,
-      magMax: spec.magSize,
+      magMax: wpnSpec.magSize,
       reserveAmmo: ammo.reserve,
       grenades: this.grenadesCount,
       foxholesUsed: this.foxholes.length,
       foxholesMax: MAX_PLAYER_FOXHOLES,
       isReloading: this.isReloading,
       reloadProgress:
-        this.isReloading && spec.reloadTime > 0
-          ? 1 - Math.max(0, this.reloadTimer / spec.reloadTime)
+        this.isReloading && wpnSpec.reloadTime > 0
+          ? 1 - Math.max(0, this.reloadTimer / wpnSpec.reloadTime)
           : 0,
-      isAds: this.adsBlend > 0.55 && this.activeSlot <= 3 && !inGroundVeh && !inAircraft,
-      isBinocularsActive: this.isBinocularsZoomed && this.playerAlive && !inGroundVeh && !inAircraft,
+      isAds: this.adsBlend > 0.55 && this.activeSlot <= 3 && !inAnyVehicle,
+      isBinocularsActive: this.isBinocularsZoomed && this.playerAlive && !inAnyVehicle,
       showAimArrow: this.settings.showAimArrow,
       nearResupply: this.isNearAlliedResupply(),
-      nearArmory: this.isNearAlliedArmory() && !inGroundVeh && !inAircraft,
-      outOfAmmo: this.activeSlot <= 3 && ammo.mag === 0 && ammo.reserve === 0 && !inGroundVeh && !inAircraft,
+      nearArmory: this.isNearAlliedArmory() && !inAnyVehicle && !this.campaignMode,
+      outOfAmmo:
+        !isNonCombatCampaign &&
+        this.activeSlot <= 3 &&
+        ammo.mag === 0 &&
+        ammo.reserve === 0 &&
+        !inAnyVehicle,
       resupplyFlash: this.resupplyFlashTimer > 0,
       crosshairSpread:
         6 + speedNow * 1.3 + this.recoilKickZ * 180 - this.adsBlend * 6,
@@ -8317,7 +8492,7 @@ export class PolyfieldEngine {
       axisTickets: Math.round(this.axisTickets),
       maxTickets: maxTix,
       timeRemaining: Math.ceil(this.timeRemaining),
-      zones: this.gameMode === 'tdm' ? [] : this.zones.map((z) => ({ ...z })),
+      zones: this.gameMode === 'tdm' || this.campaignMode ? [] : this.zones.map((z) => ({ ...z })),
       activeZoneId,
       kills: this.kills,
       deaths: this.deaths,
@@ -8339,36 +8514,62 @@ export class PolyfieldEngine {
       matchElapsed: Math.round(this.matchElapsed),
       respawnTimer: Math.max(0, Number(this.playerRespawnTimer.toFixed(1))),
       killcam: this.lastKillcam,
-      nearbyVehicleKind: this.nearbyAircraft
-        ? 'aircraft'
-        : this.nearbyVehicle
-          ? this.nearbyVehicle.kind
-          : null,
-      inVehicleKind: inAircraft ? 'aircraft' : inGroundVeh ? inGroundVeh.kind : null,
-      vehicleHp: inAircraft
-        ? Math.round(inAircraft.hp)
-        : inGroundVeh
-          ? Math.round(inGroundVeh.hp)
+      nearbyVehicleKind: this.nearbyHelicopter
+        ? 'helicopter'
+        : this.nearbyAircraft
+          ? 'aircraft'
+          : this.nearbyVehicle
+            ? this.nearbyVehicle.kind
+            : null,
+      inVehicleKind: inHeli
+        ? 'helicopter'
+        : inAircraft
+          ? 'aircraft'
+          : inGroundVeh
+            ? inGroundVeh.kind
+            : null,
+      vehicleHp: inHeli
+        ? Math.round(inHeli.hp)
+        : inAircraft
+          ? Math.round(inAircraft.hp)
+          : inGroundVeh
+            ? Math.round(inGroundVeh.hp)
+            : 0,
+      vehicleMaxHp: inHeli
+        ? inHeli.maxHp
+        : inAircraft
+          ? inAircraft.maxHp
+          : inGroundVeh
+            ? inGroundVeh.maxHp
+            : 0,
+      vehicleSpeedKmh: inHeli
+        ? Math.round(Math.hypot(inHeli.flight.vx, inHeli.flight.vz) * 3.6)
+        : inAircraft
+          ? Math.round(inAircraft.speed * 3.6)
+          : inGroundVeh
+            ? Math.round(Math.abs(inGroundVeh.speed) * 3.6)
+            : 0,
+      vehicleAmmo: inHeli ? inHeli.ammo : inAircraft ? inAircraft.ammo : inGroundVeh ? inGroundVeh.ammo : 0,
+      vehicleAltitudeM: inHeli
+        ? Math.max(0, Math.round(inHeli.flight.y - terrainUnderHeli))
+        : inAircraft
+          ? Math.max(0, Math.round(inAircraft.y - terrainUnderAc))
           : 0,
-      vehicleMaxHp: inAircraft ? inAircraft.maxHp : inGroundVeh ? inGroundVeh.maxHp : 0,
-      vehicleSpeedKmh: inAircraft
-        ? Math.round(inAircraft.speed * 3.6)
-        : inGroundVeh
-          ? Math.round(Math.abs(inGroundVeh.speed) * 3.6)
-          : 0,
-      vehicleAmmo: inAircraft ? inAircraft.ammo : inGroundVeh ? inGroundVeh.ammo : 0,
-      vehicleAltitudeM: inAircraft ? Math.max(0, Math.round(inAircraft.y - terrainUnderAc)) : 0,
       vehicleReticleX: Math.round(this.vehicleReticleX),
       vehicleReticleY: Math.round(this.vehicleReticleY),
-      vehicleReticleVisible: this.vehicleReticleVisible && (Boolean(inAircraft) || Boolean(inGroundVeh)),
+      vehicleReticleVisible: this.vehicleReticleVisible && inAnyVehicle,
       aircraftBombs: inAircraft ? inAircraft.bombsLeft : 0,
       aircraftBombsMax: inAircraft ? inAircraft.bombsMax : 2,
-      aircraftMissiles: inAircraft ? inAircraft.missilesLeft : 0,
-      aircraftMissilesMax: inAircraft ? inAircraft.missilesMax : 2,
-      aircraftFlares: inAircraft ? inAircraft.flaresLeft : 0,
-      aircraftFlaresMax: inAircraft ? inAircraft.flaresMax : 4,
-      aircraftThreatWarning: inAircraft ? this.aircraftThreatWarning : 'none',
-      aircraftThrottlePct: inAircraft ? Math.round(inAircraft.throttlePct) : 0,
+      aircraftMissiles: inHeli ? inHeli.rocketsLeft : inAircraft ? inAircraft.missilesLeft : 0,
+      aircraftMissilesMax: inHeli ? inHeli.rocketsMax : inAircraft ? inAircraft.missilesMax : 2,
+      aircraftFlares: inHeli ? inHeli.flaresLeft : inAircraft ? inAircraft.flaresLeft : 0,
+      aircraftFlaresMax: inHeli ? inHeli.flaresMax : inAircraft ? inAircraft.flaresMax : 4,
+      aircraftThreatWarning: inAnyAir ? this.aircraftThreatWarning : 'none',
+      aircraftThrottlePct: inAircraft
+        ? Math.round(inAircraft.throttlePct)
+        : inHeli
+          ? Math.round(inHeli.flight.collective * 100)
+          : 0,
       aircraftLockActive: Boolean(inAircraft && this.aircraftLockTargetName && inAircraft.missilesLeft > 0),
       aircraftLockTargetName: inAircraft ? this.aircraftLockTargetName : null,
       flightAimX: Math.round(this.flightAimX),
@@ -8379,6 +8580,12 @@ export class PolyfieldEngine {
         : 0,
       backpackMedkits: this.backpackMedkits,
       backpackMedkitsMax: this.backpackMedkitsMax,
+      vehicleInteriorCamera: this.vehicleInteriorCamera,
+      matchDurationSeconds: this.matchDurationSeconds,
+      mudLevel: this.playerMudLevel,
+      resolvedGraphicsQuality: this.resolvedGraphicsQuality,
+      resolvedTargetFps: this.resolvedTargetFps,
+      campaign: campaignHud,
     });
   }
 
@@ -8386,14 +8593,17 @@ export class PolyfieldEngine {
     this.disposed = true;
     this.sound.stopCockpitWarnings();
     this.sound.stopEngineCue();
-    this.mp.disconnect();
-    this.clearRemotePlayers();
+    this.sound.playRainAmbience(false);
     cancelAnimationFrame(this.frameId);
     clearTimeout(this.frameId);
     this.resizeObserver.disconnect();
     this.unbindEvents();
     if (this.world) {
       this.world.dispose();
+    }
+    if (this.campaignSet) {
+      this.campaignSet.dispose();
+      this.campaignSet = null;
     }
     this.skyGeo.dispose();
     this.skyMat.dispose();
@@ -8410,6 +8620,10 @@ export class PolyfieldEngine {
     for (const ex of this.explosions) {
       ex.fireballMat.dispose();
       ex.shockMat.dispose();
+    }
+    this.smokeTexture?.dispose();
+    for (const sp of this.smokePuffs) {
+      sp.mat.dispose();
     }
     this.particleMesh.geometry.dispose();
     (this.particleMesh.material as THREE.Material).dispose();
