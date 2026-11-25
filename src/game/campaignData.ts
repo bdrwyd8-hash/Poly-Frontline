@@ -1183,9 +1183,3 @@ export const CAMPAIGN_MISSIONS: CampaignMissionSpec[] = [
 export function getCampaignMission(missionId: number): CampaignMissionSpec | undefined {
   return CAMPAIGN_MISSIONS.find((m) => m.id === missionId);
 }
-
-
-export function getCampaignMission(missionId: number): CampaignMissionSpec | undefined {
-  return CAMPAIGN_MISSIONS.find((m) => m.id === missionId);
-}
-
