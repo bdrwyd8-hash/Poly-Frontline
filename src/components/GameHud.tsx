@@ -581,6 +581,14 @@ export function GameHud({
             <div className="text-[10px] text-amber-300/95 truncate max-w-[340px]">
               {lang === 'ar' ? campaign.objectiveAr : campaign.objectiveEn}
             </div>
+            {(campaign.progressTextEn || campaign.progressTextAr) && (
+              <div
+                data-testid="campaign-progress-badge"
+                className="mt-1 inline-block px-2 py-0.5 bg-emerald-950/90 border border-emerald-500/60 text-[10px] font-mono-nums font-bold text-emerald-300"
+              >
+                {lang === 'ar' ? campaign.progressTextAr : campaign.progressTextEn}
+              </div>
+            )}
           </div>
           {campaign.canSkipCutscene && (
             <button

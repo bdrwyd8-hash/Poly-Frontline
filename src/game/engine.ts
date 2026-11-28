@@ -66,6 +66,7 @@ import {
   resolveAutoGraphicsConfig,
   resolveCircleEntities,
   resolveCircleObstacles,
+  resolveZonelessBotGoal,
   steerAroundObstacles,
   stepBallisticProjectile,
   stepBombDrop,
@@ -1483,6 +1484,8 @@ export class PolyfieldEngine {
     this.activeVehicle = veh;
     veh.occupantIsPlayer = true;
     veh.rig.driverMesh.visible = !this.vehicleInteriorCamera;
+    this.playerYaw = veh.yaw + Math.PI;
+    this.playerPitch = -0.04;
     this.cameraSnapPending = true;
     this.weaponHolder.visible = false;
     this.worldFlashlight.visible = false;
@@ -1580,6 +1583,7 @@ export class PolyfieldEngine {
   public skipCampaignCutscene(): void {
     if (!this.campaignMode || !this.campaignMission || !this.campaignMission.skippableCutscene) return;
     if (this.campaignMissionComplete) return;
+    this.sound.stopEngineCue();
     if (this.campaignMission.mode === 'truck_passenger_convoy' && this.campaignMission.timeLapseAfterEn) {
       this.campaignTimeLapseTextEn = this.campaignMission.timeLapseAfterEn;
       this.campaignTimeLapseTextAr = this.campaignMission.timeLapseAfterAr;
@@ -1598,6 +1602,9 @@ export class PolyfieldEngine {
     if (this.phase !== 'paused') return;
     this.sound.unlock();
     this.phase = 'playing';
+    if (this.campaignMode && this.campaignMission?.weather === 'rain') {
+      this.sound.playRainAmbience(true);
+    }
     this.clearAllInputs();
     this.syncBodyState();
     this.emitHud();
@@ -1608,6 +1615,7 @@ export class PolyfieldEngine {
     this.phase = 'paused';
     this.sound.stopCockpitWarnings();
     this.sound.stopEngineCue();
+    this.sound.playRainAmbience(false);
     this.aircraftThreatWarning = 'none';
     this.clearAllInputs();
     this.isAds = false;
@@ -1895,7 +1903,7 @@ export class PolyfieldEngine {
     this.mapId = terrainMap;
 
     // Flat sandy ground plane + distant horizon sky dome for bespoke campaign stage
-    this.world = buildBattlefieldWorld(terrainMap);
+    this.world = buildBattlefieldWorld(terrainMap, { campaignClean: true });
     this.scene.add(this.world.group);
 
     this.campaignSet = buildCampaignSet(spec.archetype, spec.weather, (x, z) =>
@@ -2068,6 +2076,64 @@ export class PolyfieldEngine {
 
     // Spawn allied squad bots (if tactical combat) & French enemy battalion forces
     if (!isUnarmedMission && spec.mode !== 'training_range' && spec.mode !== 'night_parachute') {
+      const allyRoles = ['rusher', 'defender', 'marksman'] as const;
+      for (let i = 0; i < spec.allyCount; i++) {
+        const ax = (i - (spec.allyCount - 1) * 0.5) * 4.5;
+        const az = this.playerZ - 3.5 - (i % 2) * 2.5;
+        const pt = resolveCircleObstacles(ax, az, 0.9, this.world!.obstacles, ARENA_RADIUS);
+        const ay = groundHeightAt(pt.x, pt.z, this.mapId);
+        const role = allyRoles[i % allyRoles.length];
+        const rig = createLowPolySoldier('allies', role, {
+          tunicColor: 0x4f5a3e,
+          helmetColor: 0x39422d,
+          mudLevel: spec.initialMudLevel * 0.85,
+        });
+        rig.root.position.set(pt.x, ay, pt.z);
+        this.scene.add(rig.root);
+        this.bots.push({
+          id: 400 + i,
+          name: `JAF Trooper #${i + 1}`,
+          team: 'allies',
+          role,
+          rig,
+          x: pt.x,
+          y: ay,
+          z: pt.z,
+          vx: 0,
+          vz: 0,
+          yaw: 0,
+          hp: 110,
+          maxHp: 110,
+          alive: true,
+          crouching: false,
+          koTimer: 0,
+          koVx: 0,
+          koVz: 0,
+          koFallDir: 1,
+          respawnTimer: 9999,
+          fireCooldown: 1.0 + Math.random() * 0.9,
+          telegraphTimer: 0,
+          hitFlashTimer: 0,
+          seekCoverTimer: 0,
+          coverX: pt.x,
+          coverZ: pt.z,
+          targetZoneIdx: 0,
+          strafeDir: i % 2 === 0 ? 1 : -1,
+          strafeTimer: 2,
+          walkPhase: 0,
+          muzzleTimer: 0,
+          aiState: 'advance',
+          healTimer: 0,
+          spottedTimer: 0,
+          stuckCheckTimer: 0,
+          lastCheckX: pt.x,
+          lastCheckZ: pt.z,
+          detourTimer: 0,
+          detourDir: 1,
+          weaponPitch: 0,
+        });
+      }
+
       for (let i = 0; i < spec.enemyCount; i++) {
         const ang = (i / Math.max(1, spec.enemyCount)) * Math.PI * 1.4 - Math.PI * 0.7;
         const dist = 28 + (i % 4) * 14;
@@ -3603,6 +3669,8 @@ export class PolyfieldEngine {
         this.activeVehicle = this.nearbyVehicle;
         this.activeVehicle.occupantIsPlayer = true;
         this.activeVehicle.rig.driverMesh.visible = !this.vehicleInteriorCamera;
+        this.playerYaw = this.activeVehicle.yaw + Math.PI;
+        this.playerPitch = -0.04;
         this.cameraSnapPending = true;
         this.nearbyVehicle = null;
         this.isAds = false;
@@ -5660,7 +5728,7 @@ export class PolyfieldEngine {
       if (!hit && this.campaignMode && this.campaignSet && b.fromPlayer) {
         for (const t of this.campaignSet.targets) {
           if (t.hit) continue;
-          const tHit = this.intersectSegmentSphere(_v1, _v2, Math.min(segLen, envHitDist), t.x, t.y + 0.9, t.z, t.radius + 0.25);
+          const tHit = this.intersectSegmentSphere(_v1, _v2, Math.min(segLen, envHitDist), t.x, t.y + 0.1, t.z, t.radius + 0.28);
           if (tHit >= 0) {
             t.hit = true;
             t.mesh.rotation.x = Math.PI * 0.45;
@@ -6341,7 +6409,12 @@ export class PolyfieldEngine {
           moveSpeed = 5.2;
         } else {
           bot.crouching = false;
-          if (this.gameMode === 'tdm') {
+          if (this.campaignMode || this.zones.length === 0) {
+            const zGoal = resolveZonelessBotGoal(bot.id, bot.team, bot.role, this.playerX, this.playerZ);
+            goalX = zGoal.goalX;
+            goalZ = zGoal.goalZ;
+            moveSpeed = zGoal.moveSpeed;
+          } else if (this.gameMode === 'tdm') {
             const enemyAnchorX = bot.team === 'allies' ? 28 : -28;
             const enemyAnchorZ = Math.sin(bot.id * 1.9) * 28;
             goalX = enemyAnchorX;
@@ -6350,12 +6423,14 @@ export class PolyfieldEngine {
           } else if (bot.role === 'defender') {
             const friendlyZone =
               this.zones.find((z) => z.owner === bot.team) ||
-              this.zones[bot.team === 'allies' ? 0 : 2];
-            const distZone = Math.hypot(friendlyZone.x - bot.x, friendlyZone.z - bot.z);
-            if (distZone > 9.0) {
-              goalX = friendlyZone.x;
-              goalZ = friendlyZone.z;
-              moveSpeed = 5.2;
+              this.zones[bot.team === 'allies' ? 0 : Math.min(2, this.zones.length - 1)];
+            if (friendlyZone) {
+              const distZone = Math.hypot(friendlyZone.x - bot.x, friendlyZone.z - bot.z);
+              if (distZone > 9.0) {
+                goalX = friendlyZone.x;
+                goalZ = friendlyZone.z;
+                moveSpeed = 5.2;
+              }
             }
           } else if (bot.role === 'marksman') {
             const flankX = bot.team === 'allies' ? -38 : 38;
@@ -6367,10 +6442,12 @@ export class PolyfieldEngine {
             }
           } else {
             const priorityZone =
-              this.zones.find((z) => z.owner !== bot.team) || this.zones[1];
-            goalX = priorityZone.x + Math.sin(bot.id * 1.7) * 6;
-            goalZ = priorityZone.z + Math.cos(bot.id * 1.7) * 6;
-            moveSpeed = 5.8;
+              this.zones.find((z) => z.owner !== bot.team) || this.zones[Math.min(1, this.zones.length - 1)];
+            if (priorityZone) {
+              goalX = priorityZone.x + Math.sin(bot.id * 1.7) * 6;
+              goalZ = priorityZone.z + Math.cos(bot.id * 1.7) * 6;
+              moveSpeed = 5.8;
+            }
           }
         }
       }
@@ -8415,6 +8492,23 @@ export class PolyfieldEngine {
             spec.mode === 'truck_passenger_convoy'),
       );
 
+    let progressTextEn: string | undefined;
+    let progressTextAr: string | undefined;
+    if (this.campaignMode && spec) {
+      if (spec.mode === 'training_range') {
+        const hitCount = this.campaignSet?.targets.filter((t) => t.hit).length ?? 0;
+        progressTextEn = `Targets: ${hitCount} / ${spec.targetKills}`;
+        progressTextAr = `الأهداف المصابة: ${hitCount} / ${spec.targetKills}`;
+      } else if (spec.enemyCount > 0) {
+        const aliveEnemies = this.bots.filter((b) => b.alive && b.team === 'axis').length;
+        progressTextEn = `Hostiles Left: ${aliveEnemies}`;
+        progressTextAr = `الأعداء المتبقون: ${aliveEnemies}`;
+      } else if (this.campaignObjectiveDone) {
+        progressTextEn = 'Checkpoint Reached';
+        progressTextAr = 'تم الوصول لنقطة الهدف';
+      }
+    }
+
     const campaignHud: CampaignHudState | undefined =
       this.campaignMode && spec
         ? {
@@ -8437,6 +8531,8 @@ export class PolyfieldEngine {
             subtitle: this.campaignActiveSubtitle,
             missionComplete: this.campaignMissionComplete,
             mudLevel: this.playerMudLevel,
+            progressTextEn,
+            progressTextAr,
           }
         : undefined;
 

@@ -36,6 +36,10 @@ import {
 } from './rules';
 import type { FoxholeRecord, MapId, ObstacleBox, Team } from './types';
 
+export interface BuildWorldOptions {
+  campaignClean?: boolean;
+}
+
 export interface BuiltWorld {
   group: THREE.Group;
   obstacles: ObstacleBox[];
@@ -280,7 +284,11 @@ function minGroundUnderFootprint(
   );
 }
 
-export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
+export function buildBattlefieldWorld(
+  mapId: MapId,
+  options: BuildWorldOptions = {},
+): BuiltWorld {
+  const campaignClean = Boolean(options.campaignClean);
   const group = new THREE.Group();
   const obstacles: ObstacleBox[] = [];
   const raycastTargets: THREE.Object3D[] = [];
@@ -505,6 +513,7 @@ export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
     disposables.push(foamGeo, foamMat);
   }
 
+  if (!campaignClean) {
   // Allied Home Base Resupply Depot (at ALLY_BASE_CENTER for finite ammo resupply)
   const depotPos = { x: ALLY_BASE_CENTER.x + 10, z: ALLY_BASE_CENTER.z - 6 };
   resupplyPoints.push({ x: depotPos.x, z: depotPos.z });
@@ -669,17 +678,10 @@ export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
     addObstacleFromCenter(obstacles, `crate_z_${i}`, cx, cz, 0.72, 0.55, 1.0, false);
     resupplyPoints.push({ x: cx, z: cz, zoneId: zc.id });
   }
-
-  // 3. Enterable Hollow Houses, Bunkers, Bridge & Watchtowers
-  if (!isDesert && !isStalingrad) {
-    const bridge = createStoneBridge();
-    bridge.position.set(0, groundHeightAt(0, 0, mapId) - 0.15, 0);
-    group.add(bridge);
-    raycastTargets.push(bridge);
-    addObstacleFromCenter(obstacles, 'bridge_n', 0, -3.85, 8.2, 0.4, 1.4, false);
-    addObstacleFromCenter(obstacles, 'bridge_s', 0, 3.85, 8.2, 0.4, 1.4, false);
   }
 
+  // 3. Enterable Hollow Houses, Bunkers, Bridge & Watchtowers (skipped in clean campaign stages)
+  const zoneConfigs = MAP_ZONES[mapId];
   const houseConfigs: Array<{
     x: number;
     z: number;
@@ -714,6 +716,16 @@ export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
           { x: 38, z: 28, w: 6.8, d: 5.6, h: 4.0, rotQuad: 3, roof: 0x6b473a },
           { x: 194, z: -58, w: 7.4, d: 5.8, h: 4.2, rotQuad: 3, roof: isForest ? 0x4b423b : 0x9b4836 },
         ];
+
+  if (!campaignClean) {
+  if (!isDesert && !isStalingrad) {
+    const bridge = createStoneBridge();
+    bridge.position.set(0, groundHeightAt(0, 0, mapId) - 0.15, 0);
+    group.add(bridge);
+    raycastTargets.push(bridge);
+    addObstacleFromCenter(obstacles, 'bridge_n', 0, -3.85, 8.2, 0.4, 1.4, false);
+    addObstacleFromCenter(obstacles, 'bridge_s', 0, 3.85, 8.2, 0.4, 1.4, false);
+  }
 
   houseConfigs.forEach((hc, idx) => {
     const house = isDesert
@@ -927,6 +939,7 @@ export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
     group.add(mesh);
     addObstacleFromCenter(obstacles, `hedgehog_${idx}`, hh.x, hh.z, 0.85, 0.85, 1.4, false);
   });
+  } // end if (!campaignClean)
 
   // 5. Organic Multi-Tier Pine Trees / Desert Date Palms across full 380m arena
   const treePositions: Array<{ x: number; z: number; scale: number }> = [];
@@ -940,7 +953,7 @@ export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
   for (let i = 0; i < targetTrees; i++) {
     const isPerimeter = i < Math.floor(targetTrees * 0.42);
     const angle = (i / Math.max(1, targetTrees * 0.5)) * Math.PI * 2 + rand() * 0.45;
-    const dist = isPerimeter ? 250 + rand() * 140 : 18 + rand() * 230;
+    const dist = isPerimeter ? 250 + rand() * 140 : (campaignClean ? 105 + rand() * 150 : 18 + rand() * 230);
     const tx = Math.cos(angle) * dist;
     const tz = Math.sin(angle) * dist;
 
@@ -1064,7 +1077,7 @@ export function buildBattlefieldWorld(mapId: MapId): BuiltWorld {
   for (let i = 0; i < rockCount; i++) {
     const isOuter = i < 55;
     const angle = rand() * Math.PI * 2;
-    const dist = isOuter ? 245 + rand() * 140 : 18 + rand() * 225;
+    const dist = isOuter ? 245 + rand() * 140 : (campaignClean ? 105 + rand() * 140 : 18 + rand() * 225);
     const rx = Math.cos(angle) * dist;
     const rz = Math.sin(angle) * dist;
     if (Math.abs(rz + rx * 0.31) < 8.5) continue;

@@ -290,6 +290,8 @@ export interface CampaignHudState {
   subtitle: CampaignSubtitleState | null;
   missionComplete: boolean;
   mudLevel: number;
+  progressTextEn?: string;
+  progressTextAr?: string;
 }
 
 export interface HudSnapshot {

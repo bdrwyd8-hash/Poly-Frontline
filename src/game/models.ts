@@ -3789,29 +3789,29 @@ export function createBattleTank(team: Team): BattleTankRig {
   turret.add(driverMesh);
 
   // Interior Gunner/Commander Optics Console, Periscope Frame & Azimuth Gauges
-  const opticsHousing = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.24, 0.28), darkSteelMat);
-  opticsHousing.position.set(-0.34, 1.02, 0.44);
+  const opticsHousing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.2), darkSteelMat);
+  opticsHousing.position.set(-0.34, 0.9, 0.44);
   const sightGlass = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.32, 0.14),
+    new THREE.PlaneGeometry(0.28, 0.11),
     makePbrMat(0x0d2820, 0.12, 0.2, false, {
       emissive: 0x10b981,
-      emissiveIntensity: 0.55,
+      emissiveIntensity: 0.35,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.28,
     }),
   );
   sightGlass.rotation.y = Math.PI;
-  sightGlass.position.set(-0.34, 1.04, 0.295);
+  sightGlass.position.set(-0.34, 0.94, 0.335);
   const turretDial = new THREE.Mesh(
-    new THREE.CircleGeometry(0.065, 12),
+    new THREE.CircleGeometry(0.052, 12),
     makePbrMat(0x111827, 0.2, 0.1, false, { emissive: 0xf59e0b, emissiveIntensity: 0.45 }),
   );
   turretDial.rotation.y = Math.PI;
-  turretDial.position.set(0.02, 0.98, 0.34);
+  turretDial.position.set(-0.04, 0.9, 0.35);
   turret.add(opticsHousing, sightGlass, turretDial);
 
   const cockpitAnchor = new THREE.Object3D();
-  cockpitAnchor.position.set(-0.34, 1.18, -0.05);
+  cockpitAnchor.position.set(-0.34, 1.28, 0.04);
   turret.add(cockpitAnchor);
 
   const gun = new THREE.Group();
@@ -4404,7 +4404,7 @@ export function createCombatHelicopter(team: Team): CombatHelicopterRig {
   airframe.add(pilotMesh);
 
   const cockpitAnchor = new THREE.Object3D();
-  cockpitAnchor.position.set(0, 1.24, 1.72);
+  cockpitAnchor.position.set(0, 1.34, 1.76);
   airframe.add(cockpitAnchor);
 
   // Chin 20mm rotary autocannon turret

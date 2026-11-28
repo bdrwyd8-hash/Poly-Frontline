@@ -1895,4 +1895,34 @@ export function stepHelicopterPhysics(
   };
 }
 
+export function resolveZonelessBotGoal(
+  botId: number,
+  team: Team,
+  role: BotRole,
+  playerX: number,
+  playerZ: number,
+): { goalX: number; goalZ: number; moveSpeed: number } {
+  const spreadAngle = botId * 1.37;
+  if (team === 'axis') {
+    if (role === 'marksman') {
+      return {
+        goalX: Math.sin(spreadAngle) * 26,
+        goalZ: -26 + Math.cos(spreadAngle) * 10,
+        moveSpeed: 4.6,
+      };
+    }
+    return {
+      goalX: playerX + Math.sin(spreadAngle) * 12,
+      goalZ: playerZ + Math.cos(spreadAngle) * 12 - 8,
+      moveSpeed: role === 'rusher' ? 5.6 : 4.8,
+    };
+  }
+  return {
+    goalX: playerX + Math.sin(spreadAngle) * 8,
+    goalZ: playerZ - 12 + Math.cos(spreadAngle) * 6,
+    moveSpeed: role === 'defender' ? 4.8 : 5.4,
+  };
+}
+
+
 

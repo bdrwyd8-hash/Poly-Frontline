@@ -26,6 +26,7 @@ import {
   intersectObstaclesRay,
   resolveCircleEntities,
   resolveCircleObstacles,
+  resolveZonelessBotGoal,
   steerAroundObstacles,
   stepBallisticProjectile,
   stepBombDrop,
@@ -568,4 +569,15 @@ test('Jordan campaign defines 20 linear missions, progressive save unlocks, and 
   const castM16 = getCampaignCastStatus(16);
   assert.equal(castM15.find((c) => c.member.id === 'omar')?.aliveAtMission, true);
   assert.equal(castM16.find((c) => c.member.id === 'omar')?.aliveAtMission, false);
+});
+
+test('zoneless campaign bot goal resolver returns valid tactical coordinates without capture zones', () => {
+  const enemyRusher = resolveZonelessBotGoal(500, 'axis', 'rusher', 0, 18);
+  const enemyMarksman = resolveZonelessBotGoal(504, 'axis', 'marksman', 0, 18);
+  const allyBot = resolveZonelessBotGoal(401, 'allies', 'defender', 0, 18);
+
+  assert.ok(Number.isFinite(enemyRusher.goalX) && Number.isFinite(enemyRusher.goalZ));
+  assert.ok(enemyRusher.moveSpeed > 0);
+  assert.ok(Number.isFinite(enemyMarksman.goalX) && enemyMarksman.goalZ < 0);
+  assert.ok(Number.isFinite(allyBot.goalX) && allyBot.goalZ < 18);
 });
